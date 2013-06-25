@@ -1,0 +1,159 @@
+definition
+module CoverageReports
+
+imports Common
+
+exports
+	sorts CoverageReport CoveragePoint
+	
+context-free syntax
+	"Covered:" INT "/" INT CoveragePoint* ->  CoverageReport {cons("CoverageReport")}
+	
+	STRING STRING STRING ":" INT -> CoveragePoint { cons("CoveragePoint")}
+
+module Common
+
+exports
+  sorts ID INT EOF STRING StringChar BackSlashChar
+  lexical syntax
+  
+    [a-zA-Z][a-zA-Z0-9\_\-\$\']* -> ID {prefer}
+    "-"? [0-9]+                  -> INT
+    
+    "\"" StringChar* "\"" -> STRING
+    ~[\"\n]               -> StringChar
+    "\\\""                -> StringChar
+    BackSlashChar         -> StringChar
+    "\\"                  -> BackSlashChar
+
+    %% UNDONE: also in main module or Stratego-Sugar syntax
+    %%    
+    %%[\ \t\n\r] -> LAYOUT
+    %%[\*]                             -> CommentChar
+    %%"/*" (~[\*] | CommentChar)* "*/" -> LAYOUT
+    %%"//" ~[\n\r]* ([\n\r] | EOF)     -> LAYOUT
+    
+    -> EOF
+  
+  lexical restrictions
+  
+    %% Ensure greedy matching for lexicals
+  
+    %%CommentChar -/- [\/]
+    INT           -/- [0-9]
+    ID            -/- [a-zA-Z0-9\_\-\$\']
+    
+    %% EOF may not be followed by any char
+    
+    EOF           -/- ~[]
+
+    %% Backslash chars in strings may not be followed by " 
+    
+    BackSlashChar -/- [\"]
+
+  context-free restrictions
+  
+    %% Ensure greedy matching for comments
+
+    LAYOUT? -/- [\ \t\n\r]
+    LAYOUT? -/- [\/].[\/]
+    LAYOUT? -/- [\/].[\*]
+
+module Spoofax-AutomatedTesting
+
+imports Common 
+imports CoverageReports
+
+exports
+  context-free start-symbols ASTStart AutoTestConfig CoverageReport
+
+exports
+  sorts AutoTestConfig ASTStart ASTTerm AT ATSetting COV COVSetting ERR ERRC Action InsertOperation DeleteOperation Fix ErrorMatch DestinationMatch 
+	
+context-free   syntax
+
+	"automatic" "test" AT -> AutoTestConfig {cons("AutoTest")}
+	"automatic" "test" AT COV 	-> AutoTestConfig{cons("AutoTest")}
+	"automatic" "test" AT COV ERR	-> AutoTestConfig{cons("AutoTest")}
+	
+	"error" "correction" ERRC*	-> ERR{cons("ErrorCorrections")}
+	ID ":" STRING "," ErrorMatch "->"	{Action "or"}*		-> ERRC{cons("ErrorCorrection")}
+	
+	InsertOperation Fix "@" DestinationMatch 		-> Action{cons("AddCorrection")}
+	InsertOperation Fix "first@" DestinationMatch  	-> Action{cons("AddCorrectionFirst")}
+	"change" "to" Fix								-> Action{cons("ChangeCorrection")}
+	DeleteOperation { ErrorMatch "or"}+ "from" "list"				-> Action{cons("DeleteFromListCorrection")}
+	
+	"insert" -> InsertOperation{cons("Insert")}
+	"insert" "once" -> InsertOperation{cons("InsertOnce")}
+	"insert" "once" "for" "(" ErrorMatch ")" -> InsertOperation{cons("InsertOnceFor")}
+	"delete" -> DeleteOperation{cons("Delete")}
+	"delete" "for" "(" ErrorMatch ")" -> DeleteOperation{cons("DeleteFor")}
+	
+	
+	"$concat" "(" Fix "," Fix ")"	-> Fix{cons("Fix_Conc")}
+	ID "(" {Fix  ","}* ")" 		-> Fix{cons("Fix_Cons")}
+	ID							-> Fix
+	STRING						-> Fix{cons("Fix_String")}
+	"[" "]" 					-> Fix{cons("Fix_EmptyArray")}
+	"[" Fix+ "]"				-> Fix{cons("Fix_Array")}
+	"$_"INT						-> Fix{cons("Fix_Var")}
+	INT							-> Fix{cons("Fix_Int")}
+	
+	
+	ID "(" { ErrorMatch ","}* ")"		-> ErrorMatch{cons("ErrMatchCons")}
+	"$_"INT								-> ErrorMatch{cons("ErrMatchParamBind")}
+	"@_"INT								-> ErrorMatch{cons("ErrMatchParam")}
+	STRING								-> ErrorMatch{cons("ErrMatchString")}
+	INT									-> ErrorMatch{cons("ErrMatchINT")}
+	"_"									-> ErrorMatch{cons("ErrMatchWildCard")}
+	
+	"_"									-> DestinationMatch{cons("DestMatchWildCard")}
+	"$here"								-> DestinationMatch{cons("TargetNode")}
+	ID "(" {DestinationMatch ","}* ")" 	-> DestinationMatch{cons("DestMatchCons")}
+	STRING								-> DestinationMatch{cons("DestMatchString")}
+	INT									-> DestinationMatch{cons("DestMatchInt")}
+	
+	%% Auto Testing Settings
+	ATSetting*						-> AT {cons("ATSettings")}
+	"test" "tag:" ID				-> ATSetting{cons("ATtag")}
+	"target" "language:" ID			-> ATSetting{cons("TargetLanguage")}
+	"target" "strategy:" ID	"@" STRING		-> ATSetting{cons("TargetStrategy")}
+	"nr#" "runs:" INT				-> ATSetting{cons("NumberOfRuns")}
+	"ignore" "sorts:" {STRING ","}*	-> ATSetting{cons("IgnoreSorts")}
+	"max" "term" "count:" INT		-> ATSetting{cons("MaxCount")}
+	"max" "recursion:" INT			-> ATSetting{cons("MaxRec")}
+	"terminal" "pool" "size:" INT	-> ATSetting{cons("TerminalPoolSize")}
+	"test" "folder:" STRING			-> ATSetting{cons("TestFolder")}
+	"max" "iteration:" INT			-> ATSetting{cons("MaxIter")}
+		
+	%% Coverage Settings
+	"coverage" "settings" COVSetting*	-> COV{cons("COVSettings")}
+	"covered" "files:" {STRING ","}*	-> COVSetting{cons("CoveredFiles")}
+	
+	%% AST Term
+	"@""ASTTerm:" ASTTerm				-> ASTStart{cons("ASTStart")}
+	ID "(" { ASTTerm ","}* ")"		-> ASTTerm{cons("ASTcons")}
+	ID								-> ASTTerm{cons("ASTid")}
+	STRING							-> ASTTerm{cons("ASTstring")}
+	INT								-> ASTTerm{cons("ASTint")}
+	"<" INT ">"						-> ASTTerm{cons("ASTparam")}
+	"[" {ASTTerm ","}* "]"			-> ASTTerm{cons("ASTlist")}	
+	
+  sorts ShortCom LongCom CommChar Asterisk Eof
+  lexical syntax
+    "//" ~[\n]* ([\n] | Eof) -> ShortCom
+    "/*" CommChar* "*/"      -> LongCom
+                             -> Eof
+
+    ~[\*]      -> CommChar
+
+    "*"        -> Asterisk
+    Asterisk   -> CommChar
+
+  lexical restrictions
+    Asterisk -/- [\/]
+
+  lexical syntax
+    ShortCom    -> LAYOUT
+    LongCom     -> LAYOUT

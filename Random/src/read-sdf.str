@@ -1,0 +1,509 @@
+module read-sdf
+
+imports
+	random_test
+	random_settings
+	generate-program
+	include/SpoofaxLang
+	libstratego-lib
+	libstratego-gpp
+	libstratego-aterm
+	libstratego-sglr
+	libstratego-sdf
+	libstratego-xtc
+
+rules
+	
+	find-start-symbols:
+		d@context-free-start-symbols(startSymbol*) -> d
+		with
+			<map(?sort(symbol);rules(SDFStart : symbol))> startSymbol*
+			
+ 	read-sdf=
+ 		?definition(modules)
+ 	;	moduleName := <Language>
+	;	if <filter(or(
+ 	 		?'module(unparameterized(moduleName),_,_),
+ 	 		?'module(parameterized(moduleName,_),_,_)));?[<id>]> modules => mainModule then
+	 	 	<sometd(find-start-symbols)> mainModule
+	 	;	<topdown-read-sdf(|modules,"yes")> mainModule
+	 	else
+	 		<debug> "There is no unique main Module defined!"
+	 	end
+//	;	<sometd(read-priorities)> modules
+	;	propagate-priorities
+	;	rules(AllConsCount: <all-keys-ConsKey;nub;length>)
+	 	
+	read-priorities:
+		d@context-free-priorities(chains) -> d
+		with
+		<map({p*: 
+			?chain(p*) 
+		;	!p*
+		;	read-priority})> chains
+		
+			 
+	
+	propagate-priorities=
+		allPriorityKeys := <all-keys-Priority;filter(?(_,_,">"))>
+	;	toAdd := <propagate-priorities-rec> allPriorityKeys
+	; 	if not(!toAdd => []) then
+	  		<map({r1,r2,s1,s2:
+	  			?(r1,s1,r2,s2)
+	  		;	<write-Priority-rule> (r1,s1,">",r2,s2)
+	  			})> toAdd
+	  	;	 propagate-priorities
+	  	end
+	
+	propagate-priorities-rec:
+		[] -> []
+	
+	propagate-priorities-rec:
+		[x | xs] -> toAdd'
+		with
+			thesePriorities := <bagof-Priority> x
+		;	!x => (rule,sort,_)
+		;	<map({r1,s1,s1':
+		 			?(r1,s1)
+					;if !s1 => sort(_) then <debug> "ASDKJLAKSDJLAKSJDLK:AJSDKL:AJS" end
+					;if !s1 => parameterized-sort(_,_) then <debug> " IEUROIWJEOD:LKFK:SLDJFLKSDJFKLSDJF" end
+//		 		;	s1' := <recognize-sort> s1
+		 		;	<bagof-Priority;filter({r2,s2:			
+		 		 			?(r2,s2)
+		 		 			// Check if (r2,s2) already have been added
+		 		 		;	if <filter(?(r2,s2))> thesePriorities => [] then
+		 		 		 		!(rule,sort,r2,s2)
+		 		 		 	else
+		 		 		 		fail
+		 		 		 	end
+		 		 	})> (r1,s1,">")
+		 	});concat;nub> thesePriorities => toAdd
+		
+		;	toAdd' 	:= <conc> ( toAdd, <propagate-priorities-rec> xs)
+	
+	write-Priority-rule=
+		?(r1,s1,as,r2,s2)
+			; if !s1 => sort(_) then <debug> "JSAKDJASLKDJALKSJDLKASJD" end
+			; if !s1 => parameterized-sort(_,_) then <debug> "7398327492JSAKDJASLKDJALKSJDLKASJD" end
+			; if !s2 => sort(_) then <debug> "DLFKSLDJFLKSDJF" end
+			; if !s2 => parameterized-sort(_,_) then <debug> "984503495FDKJSLKSJF" end
+			
+	;	rules(Priority :+ (r1,s1,as) -> (r2,s2))
+ 	
+	read-priority:
+		[] -> []
+	
+	// 	A > xs 
+	read-priority:
+		d@[simple-group(prod(rule,sort,attrs)) | xs] -> [(rule,sort)]
+		with
+			subgroups := <read-priority> xs
+		;	sort' := <recognize-sort> sort	
+		;	<map({r,s: ?(r,s) ; <write-Priority-rule> (rule,sort',">",r,<recognize-sort> s) })> subgroups	
+		
+	
+	// { A1 A2 ..} > xs		 	
+	read-priority:
+		[prods-group(prods) | xs] -> prods'
+		with
+		 	subgroups := <read-priority> xs	
+		;	prods' := 
+		 		<map({rule,sort,sort':
+		 			?prod(rule,sort,_)
+		 		; sort' := <recognize-sort> sort
+		 		; <map({r,s:
+		 		  		?(r,s)
+		 		  	;	<write-Priority-rule> (rule,sort',">", r,<recognize-sort> s)
+		 		  		})> subgroups
+		 		;	!(rule,sort)
+		 		})> prods
+		
+	// {associativity: A1 A2 ..} > xs	 	 
+	read-priority:
+		[assoc-group(associativity, prods) | xs] -> prods'
+		with
+		 	subgroups := <read-priority> xs	
+		;	prods' := 
+		 		<map({rule,sort,sort':
+		 			?prod(rule,sort,_)
+		 		;	sort' := <recognize-sort> sort
+			 	;	<map({r,s:
+			 		  		?(r,s)
+			 			;	<write-Priority-rule> (rule,sort',">", r,<recognize-sort> s)
+			 		  		})> subgroups
+		 		;	// check for reflexive behaviour
+		 		 	if !prods => [onlyOne] then
+		 		 		<write-Priority-rule> (rule,sort',associativity, rule, <recognize-sort> sort)
+		 		 	else
+		 		 		<map({r,s: 
+		 		 			?prod(r,s,_)
+		 		 		;	if not(and(!r=>rule, !s=> sort)) then
+		 		 		 		<write-Priority-rule> (rule,sort', associativity, r,<recognize-sort> s)
+		 		 		 	end })> prods
+		 		 	end
+		 		;	!(rule,sort)
+		 		})> prods
+				
+			 
+ 	topdown-read-sdf(|sdf,readHiddens)=
+ 		?'module(m, imports, prodRules)
+ 	;	<?unparameterized(moduleName') <+ ?parameterized(moduleName,params); moduleName' := (moduleName,params)> m
+ 	;	if not(<ModulesRead> moduleName') then
+	 	 	rules(ModulesRead : moduleName')
+		;	if	!readHiddens => "yes" then
+				<alltd(read-prod)> prodRules
+		 	else
+				<filter(?exports(_));alltd(read-prod)> prodRules
+		 	end
+		;	<try(sometd(read-priorities))> prodRules
+	 	;	<map({i*: ?imports(i*); <map(read-imports(|sdf))> i* })> imports
+	 	end
+ 	
+ 	param-rewrite-sdf(|moduleToParameterize,paramsNvalues):
+ 		moduleToParameterize -> moduleToRead
+ 		with 
+ 			moduleToRead := <rec-replace-params(|moduleToParameterize)> paramsNvalues
+ 	
+	read-imports(|sdf):
+ 	 	d@'module(unparameterized(moduleName)) -> d
+ 	 	with
+ 	 		moduleToRead 	:= <filter( ?'module(unparameterized(moduleName),_,_));?[<id>]> sdf
+ 	 	;	<topdown-read-sdf(|sdf,"no")> moduleToRead
+ 	
+ 	read-imports(|sdf):
+ 	 	d@'module(parameterized(moduleName,values)) -> d
+ 		with
+ 			
+ 			moduleToParameterize := <filter(?'module(parameterized(moduleName,_),_,_));?[<id>]> sdf
+		;	!moduleToParameterize => 'module(parameterized(name, params),_,_)
+ 	 	;	paramsNvalues := <zip> (params,values)
+ 	 	;	sdf' := <oncetd({a: ?a; <param-rewrite-sdf(|moduleToParameterize,paramsNvalues)> a => moduleToRead})> sdf 			
+ 	 	;	<topdown-read-sdf(|sdf', "no")> moduleToRead
+ 	 	 	
+ 	 read-imports(|sdf):
+ 	 	d@renamed-module(unparameterized(moduleName),renamings(r*)) -> d
+ 	 	with
+ 	 		moduleToRename 	:= <filter( ?'module(unparameterized(moduleName),_,_));?[<id>]> sdf
+	 	;	moduleToRead 	:= <rec-rename-module(|moduleToRename)> r*
+ 	 	;	<topdown-read-sdf(|sdf, "no")> moduleToRead
+
+ 	 
+ 	 read-imports(|sdf):
+ 	 	d@renamed-module(parameterized(moduleName,values),renamings(r*)) -> d
+ 	 	with
+		 	moduleToRename 			:= <filter( ?'module(unparameterized(moduleName),_,_));?[<id>]> sdf
+ 	 	;	moduleToParameterize 	:= <rec-rename-module(|moduleToRename)> r*
+ 	 	;	!moduleToParameterize => 'module(parameterized(name, params),_,_)
+ 	 	;	paramsNvalues 			:= <zip> (params,values)
+ 	 	;	sdf' := <oncetd({a: ?a; <param-rewrite-sdf(|moduleToParameterize,paramsNvalues)> a => moduleToRead})> sdf
+		;	<topdown-read-sdf(|sdf', "no")> moduleToRead
+ 
+ 	rec-rename-module(|sdfModule):
+ 		[] -> sdfModule
+ 
+ 	rec-rename-module(|sdfModule):
+ 		[r|rs] -> sdfModule'
+ 		with
+ 			sdfModule' := <rec-rename-module(|<sometd(rename-module(|r))> sdfModule)> rs
+ 	
+	//TODO: Wth is production??!?
+ 	rename-module(| r ):
+ 		s1 -> s2
+ 		where  
+ 			!r => symbol(s1,s2) <+ !r => production(s1,s2)  
+ 	
+ 	rec-replace-params(|sdfModule):
+ 		[] -> sdfModule
+ 	
+ 	rec-replace-params(|sdfModule):
+ 		[(param,value)|xs] -> sdfModule'
+ 		with
+ 			sdfModule' := <rec-replace-params(|<topdown(try(replace-param(|param,value)))>sdfModule)> xs
+
+ 	replace-param(|param, value):
+ 		parameterized-sort(s,params) -> parameterized-sort(s,values)
+ 		with
+ 			values := <one(?param;!value)> params
+ 	
+ 	replace-param(|param, value):
+ 		sort(param) -> sort(value)  
+ 	
+ 	replace-param(|param, value):
+ 		parameterized(moduleName,params) -> parameterized(moduleName,values)
+ 		with
+ 			values := <one(?param;!value)> params	 
+	
+//	read-prod:
+//		<?d@hiddens(prods) <+ ?d@exports(prods)> ->	d
+//		with
+//			<alltd(read-prod)> prods
+		
+	read-prod:
+		d@context-free-syntax(prod*) -> d
+		with 
+			<map(try(declare-cf))> prod*
+
+	read-prod:
+		d@syntax(prod*) -> d
+		with
+			<map({p,rule,s*,attrs:
+				?prod(rule,s*,attrs)
+			;	p:= prod(<sometd(remove-cflex-sugar)> rule,<sometd(remove-cflex-sugar)> s*,attrs)
+			;	if <oncetd(?cf(_))> s* then
+			 		<declare-cf> p
+			 	else
+			 		<declare-lex> p
+			 	end
+				})> prod*
+ 
+	read-prod:
+		d@lexical-syntax(prod*) -> d
+		with
+			<map(declare-lex)> prod*
+	
+	remove-cflex-sugar:
+		cf(a) -> a
+	
+	remove-cflex-sugar:
+		lex(a) -> a
+			
+	declare-lex=
+		?d@prod(rule, s*, attrs(attrs*))
+		// To assure reject conditions are not added as possible production rules
+		;	if not(<oncetd(?"deprecated"#(_))> attrs*) then
+				if  <oncetd(recognize-sort)> s* => s then 
+		 			if !s then
+				 		if not(<oncetd(?reject())> attrs*) then
+				 			rules(	LexSorts :+ s -> rule
+									SortsLex : rule -> s )
+				 		end		
+					;	<try(oncetd(check-lex-attrs(|s,rule)))> attrs*
+					end 
+			end	
+			 	else
+					<concat-strings;debug> ["Lex not beeing processed: ", <write-to-string> d]
+			 	end
+		 	 
+			 
+	check-lex-attrs(|s,rule):
+			d@cons(c) -> d
+			with 
+		 		cons' := <unescape> c
+		 	;	rules(	LexCons : (s,rule) -> cons'
+	 	 				ConsLex : cons' -> (s,rule))
+	
+	check-lex-attrs(|s,rule):
+			d@reject() -> d
+			with
+				rules( LexReject :+ s -> rule) 
+						
+ 	declare-cf=
+		?d@prod( rule ,s*,attrs)
+	;	if and(!attrs => attrs(attrs*),not(or(<subseteq> ([reject()],attrs*),<oncetd(?"deprecated"#(_))> attrs*))) then
+	 		if <oncetd(recognize-sort)> s* => s then
+				uniqueID := <new>
+			;	rules(	CFSorts :+ s -> rule
+		 			SortProd2UniqueID : (s,rule) -> uniqueID
+		 			UniqueID2SortProd : uniqueID -> (s,rule))			
+			;	<record-inverse> (s, rule)
+			;	<sometd(check-cf-attrs(|s*,rule))> attrs
+			else
+			 	<concat-strings;debug> ["Not beeing processed: ", <write-to-string> d]  
+		 	end
+		end
+
+	record-inverse=
+		?(sort,rule)
+	;	listOfSorts := <filter-prods;map(extract-sorts);try(concat)> rule
+	;	<map({s: ?s ; rules(InverseProd:+ s -> (sort,rule))})> listOfSorts 
+
+	
+	extract-sorts:
+		alt(a,b) -> [a', b']
+		where
+			a' := <extract-sorts;try(concat)> a
+		;	b' := <extract-sorts;try(concat)> b
+		
+	extract-sorts:
+		< ?d@iter-star(a) <+ ?d@iter-star-sep(a, _) <+ ?d@iter(a) <+ ?d@iter-sep(a, _)> -> sort
+		where
+			sort := <extract-sorts;try(concat)> a
+	
+	extract-sorts:
+		label(_,a) -> sort
+		where
+			sort := <extract-sorts;try(concat)> a
+		
+	extract-sorts:
+		cf(a) -> sort
+		where
+			sort := <extract-sorts;try(concat)> a
+			
+	extract-sorts:
+		opt(a) -> sort
+		where
+			sort := <extract-sorts;try(concat)> a
+	
+	extract-sorts:
+		s -> [sort]
+		where 	sort := <recognize-sort> s
+	
+		
+	
+	check-cf-attrs(|s,rule):
+		d@cons(c) -> d
+		with
+			cons' := <unescape> c
+		;	s' := <recognize-sort> s
+		;	key := <create-key> cons'#(<filter-prods> rule)
+		;	rules(	CFCons : (s',rule) -> cons'
+	 		 		ConsCF :+ cons' -> (s',rule)
+					ConsKey: key)
+		
+	check-cf-attrs(|s,rule):
+		d@term(ast(t)) -> d
+		with
+			tbl := <ReadFromFile> $[include/Autotest.tbl]	
+		;	t' := <concat-strings;parse-string(|tbl)> ["@ASTTerm: ",t]
+		;	s' := <recognize-sort> s
+		;	rules( SpecialASTTerm : (s',rule) -> t' )
+	
+	// This is to desugar assoc to left
+	check-cf-attrs(|s,rule):
+		d@<	?left() 	<+
+			?assoc() >
+			-> d
+		with
+			s' := <recognize-sort> s
+		;	<write-Priority-rule> (rule,s',left(), rule, s')
+	
+	check-cf-attrs(|s,rule):
+		d@<	?right() 	<+
+			?non-assoc() >
+			-> d
+		with
+			s' := <recognize-sort> s
+		;	<write-Priority-rule> (rule,s',d,rule,s') 
+	
+	find-terminal-paths(|level)=
+		allCFSorts := <all-keys-CFSorts>
+	;	toAdd := <map(find-terminal-path(|level));concat;concat> allCFSorts
+ 	;	if not(!toAdd => []) then
+			<map({node,p,level: ?(node,p,level); rules(TerminalPath :+ node -> (p,level))})> toAdd
+ 		;	newLevel := <addi> (level,1)
+ 		;	find-terminal-paths(|newLevel)
+ 		end
+
+	recognize-sort:
+		sort(s) -> s
+	
+	recognize-sort:
+		d@parameterized-sort(s',params) -> s
+		with
+			params' := <change-param-sort> params
+		;	s := (s', params')	
+	
+	sort-recognize:
+		(s', params) -> parameterized-sort(s', params')
+		with
+			params' := <sort-param-change> params
+			 
+	sort-recognize:
+		s -> sort(s)
+			
+	change-param-sort:
+		<?sort(s) <+ ?[sort(s)]> -> s'
+		with
+			s' := <conc-strings> ("sort_",s)
+	
+	sort-param-change=
+		string-tokenize(|['_']) => [_|toConcatenate]
+	;	!sort(<concat-strings> toConcatenate)
+	
+	filter-terminal-constructs=
+		filter(and(not(?iter-star(_)),and(not(?iter-star-sep(_,_)),not(?opt(_)))))
+
+	find-terminal-path(|level):
+		node -> result
+		with
+			u := <bagof-CFSorts> node
+		;	if not( <some({p:
+		 		?p
+		 		// A prod is a terminal path if all of the sorts
+		 		//	are either LexSorts, CFSorts with Terminal Paths and
+		 		//	_NOT_ the same node
+		 		//	 so If there is not one node, that is either not in LexSorts
+		 		// nor a sort with Terminal path or if it is the same node (direct recursion) 
+		 	;	if <is-terminal-path(|node,level)> p then	
+					![(node, p, level)]
+				else
+					![]
+				end 
+		 	})> u  => result) then
+		 		result := []
+		 	end
+
+	is-terminal-path(|node,level)=
+		?prod
+	;	<filter-terminal-constructs> prod
+	;	filter({s: 
+			oncetd(recognize-sort => s) 
+		;	or(	not(<LexSorts> s) ; not(<TerminalPath> s), 
+				!s => node ; <GreaterTerminalLevel> (node,level))
+		}) 
+	;	?[]		
+	// this is to prevent adding the same production twice.
+	;	or( not(<TerminalPath> node),
+			<bagof-TerminalPath;filter(?(prod,_))> node =>[])	 	
+
+ 	GreaterTerminalLevel:
+ 		(node,level) -> (node,level)
+ 		where
+ 			not(<bagof-TerminalPath;filter({l: ?(_,l) ; <geq> (l,level)})> node => []) 
+	 	
+
+	// PRocessedBody must contain values of the following type (someSort,int,rejections)
+	get-SpecialASTTerm-cons(|prod,allRejections):
+		(sort,rule) -> (cons,processedBody')
+		where
+			<SpecialASTTerm> (sort,rule) => ASTStart(ASTcons(cons,body))
+		;	processedBody := <get-SpecialASTTerm-cons-rec(|prod,allRejections)> body
+		;	processedBody':= <numberItems;map({s,r,i: if ?((s,r),i) then !(s,i,r) end})> processedBody
+
+
+	get-SpecialASTTerm-cons-rec(|prod,allRejections):
+		ASTcons(cons, params) -> cons
+		with
+			<concat-strings;debug> ["Definition creation of SpecialAST with inner cons not supported: ",<write-to-string> (cons,params)]
+		;	fail
+
+	get-SpecialASTTerm-cons-rec(|prod,allRejections):
+		ASTid(v) -> v
+		with
+			<concat-strings;debug> ["Definition creation of SpecialAST with var?: ",<write-to-string> v]
+
+	get-SpecialASTTerm-cons-rec(|prod,allRejections):
+		ASTstring(s) -> s'
+		with
+			s' := <un-double-quote> s
+
+	get-SpecialASTTerm-cons-rec(|prod,allRejections):			
+		ASTint(i) -> i'
+		with
+			i' := <string-to-int> i
+
+	get-SpecialASTTerm-cons-rec(|prod,allRejections):
+		ASTparam(i) -> res
+		with
+			sortsOnly := <filter(oncetd(?sort(_)))> prod
+		;	numbered := <numberItems> sortsOnly
+		;	toChoose := <addi> (<string-to-int> i,-1)
+		;	<filter(?(_,toChoose))> numbered => [(toWrite,_)|_]
+		;	<numberItems;filter(?(_,toChoose))> allRejections => [(rejections,_)|_]
+		;	res := (toWrite,rejections)
+
+	get-SpecialASTTerm-cons-rec(|prod,allRejections):
+		ASTlist(list) -> list
+		with
+			<concat-strings;debug> ["Definition creation of SpecialAST with list not supported: ",<write-to-string> list]
+		;	fail

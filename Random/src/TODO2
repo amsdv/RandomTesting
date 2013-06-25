@@ -1,0 +1,51 @@
+No injections for: Var
+at scope: InitAction0
+cons: InitAction
+
+
+pp changed: 
++VarDeclS
+Cast (removed ( ) )
+TemplateBody { }
+OutputImage variant zonder [ ] weghalen
+
+is-terminal-path(|node,level)=
+		?prod
+	;	<filter-terminal-constructs> prod
+	;	filter({s: 
+			oncetd(recognize-sort => s) ;if !node =>("Path","sort_HQL") then <debug(!"ok:")> s end
+		;	or(	not(<LexSorts> s) ; not(<TerminalPath> s), 
+				!s => node ; <GreaterTerminalLevel> (node,level))
+		}) => []
+	// this is to prevent adding the same production twice.
+	;	or( not(<TerminalPath> node),
+			<bagof-TerminalPath;filter(?(prod,_))> node =>[])	
+
+
+
+find-terminal-path(|level):
+		node -> result
+		with
+			u := <bagof-CFSorts> node
+		;	if not( <some({p:
+		 		?p
+		 		// A prod is a terminal path if all of the sorts
+		 		//	are either LexSorts, CFSorts with Terminal Paths and
+		 		//	_NOT_ the same node
+		 		//	 so If there is not one node, that is either not in LexSorts
+		 		// nor a sort with Terminal path or if it is the same node (direct recursion) 
+		 	;	if and(
+		 	 		<filter-terminal-constructs
+		 	 		;	not(oncetd({s: 
+		 	 		 		recognize-sort => s 
+		 	 			;	or(and(not(<LexSorts> s),not(<TerminalPath> s)),and(!s => node, <GreaterTerminalLevel> (node,level)))}))> p,
+		 	 		// this is to prevent adding the same production twice.
+		 	 		or(not(<TerminalPath> node),<bagof-TerminalPath;filter(?(p,_))> node =>[]))  
+		 	 	then	
+					![(node, p, level)]
+				else
+					![]
+				end 
+		 	})> u  => result) then
+		 		result := []
+		 	end

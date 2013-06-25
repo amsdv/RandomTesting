@@ -1,0 +1,14 @@
+prod(
+  [lit("\"globals\""), lit("\"{\""), iter-star(sort("GlobalsDef")), lit("\"}\"")]
+, sort("Definition")
+, attrs(
+    [ prefer()
+    , term(
+        default(appl(unquoted("cons"), [fun(quoted("\"GlobalsDefinition\""))]))
+      )
+    , term(
+        default(appl(unquoted("deprecated"), [fun(quoted("\"'globals{ }' block is no longer necessary around global variables and functions\""))]))
+      )
+    ]
+  )
+)

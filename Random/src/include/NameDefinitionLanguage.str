@@ -1,0 +1,71 @@
+module NameDefinitionLanguage
+
+signature
+  constructors
+    CurrentFile    : ImportAnno
+    Transitive     : ImportAnno
+    Annos          : List(ImportAnno) -> ImportAnnos
+    None           : RefScopePart
+    RefScope       : NamespaceRef * Term -> RefScopePart
+    None           : DefScopePart
+    OrderedScope   : DefScopePart
+    DefScope       : List(Term) -> DefScopePart
+    None           : TypePart
+    TypeBinding    : Term -> TypePart
+    NonUnique      : UniquePart
+    Unique         : UniquePart
+    ReferenceCheck : NamespaceRef * Term * TypePart * RefScopePart -> Condition
+    TypeCheck      : Term -> Condition
+    Where          : Term * Condition -> WhereClause
+    ND-Type        : Term -> NamingPart
+    ND-Scope       : List(NamespaceRef) -> NamingPart
+    ND-Ref         : NamespaceRef * Term * TypePart * RefScopePart -> NamingPart
+    ND-Import      : NamespaceRef * NamespaceRef * Term * DefScopePart * ImportAnnos -> NamingPart
+    ND-Def         : UniquePart * NamespaceRef * Term * TypePart * DefScopePart -> NamingPart
+    ND-Rule        : Term * List(NamingPart) * List(WhereClause) -> NamingRule
+    ND-Rules       : List(NamingRule) -> NamingRules
+    NsRef          : Id -> NamespaceRef
+    Namespace      : Id -> Namespace
+                   : List(Namespace) -> Namespaces
+    Import         : ModName -> ModuleRef
+                   : List(ModuleRef) -> Imports
+    Naming         : ModName * Imports * Namespaces * List(NamingRules) -> NamingDefinition
+                   : NamingDefinition -> Start
+    ListVar        : LId -> LID
+    Wld            : Wld
+    NoAnnoList     : PreTerm -> Term
+                   : Wld -> Term
+                   : Var -> Term
+    ListTail       : List(Term) * Term -> PreTerm
+    List           : List(Term) -> PreTerm
+    Tuple          : List(Term) -> PreTerm
+    Char           : Char -> PreTerm
+    OpQ            : String * List(Term) -> PreTerm
+    Op             : Id * List(Term) -> PreTerm
+    Str            : String -> PreTerm
+    Real           : Real -> PreTerm
+    Int            : Int -> PreTerm
+                   : Wld -> PreTerm
+                   : Var -> PreTerm
+    Var            : LID -> Var
+    Var            : Id -> Var
+                   : String -> Char
+                   : String -> String
+                   : String -> Real
+                   : String -> Int
+                   : String -> LId
+                   : String -> Id
+                   : String -> ModName
+
+
+signature
+  constructors
+    Some : a -> Option(a)
+    None : Option(a)
+
+
+signature
+  constructors
+    Cons : a * List(a) -> List(a)
+    Nil  : List(a)
+    Conc : List(a) * List(a) -> List(a)

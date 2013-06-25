@@ -1,0 +1,75 @@
+module Autotest
+
+signature
+  constructors
+    ASTlist                  : List(ASTTerm) -> ASTTerm
+    ASTparam                 : INT -> ASTTerm
+    ASTint                   : INT -> ASTTerm
+    ASTstring                : STRING -> ASTTerm
+    ASTid                    : ID -> ASTTerm
+    ASTcons                  : ID * List(ASTTerm) -> ASTTerm
+    ASTStart                 : ASTTerm -> ASTStart
+    CoveredFiles             : List(STRING) -> COVSetting
+    COVSettings              : List(COVSetting) -> COV
+    MaxIter                  : INT -> ATSetting
+    TestFolder               : STRING -> ATSetting
+    TerminalPoolSize         : INT -> ATSetting
+    MaxRec                   : INT -> ATSetting
+    MaxCount                 : INT -> ATSetting
+    IgnoreSorts              : List(STRING) -> ATSetting
+    NumberOfRuns             : INT -> ATSetting
+    TargetStrategy           : ID * STRING -> ATSetting
+    TargetLanguage           : ID -> ATSetting
+    ATtag                    : ID -> ATSetting
+    ATSettings               : List(ATSetting) -> AT
+    DestMatchInt             : INT -> DestinationMatch
+    DestMatchString          : STRING -> DestinationMatch
+    DestMatchCons            : ID * List(DestinationMatch) -> DestinationMatch
+    TargetNode               : DestinationMatch
+    DestMatchWildCard        : DestinationMatch
+    ErrMatchWildCard         : ErrorMatch
+    ErrMatchINT              : INT -> ErrorMatch
+    ErrMatchString           : STRING -> ErrorMatch
+    ErrMatchParam            : INT -> ErrorMatch
+    ErrMatchParamBind        : INT -> ErrorMatch
+    ErrMatchCons             : ID * List(ErrorMatch) -> ErrorMatch
+    Fix_Int                  : INT -> Fix
+    Fix_Var                  : INT -> Fix
+    Fix_Array                : List(Fix) -> Fix
+    Fix_EmptyArray           : Fix
+    Fix_String               : STRING -> Fix
+                             : ID -> Fix
+    Fix_Cons                 : ID * List(Fix) -> Fix
+    Fix_Conc                 : Fix * Fix -> Fix
+    DeleteFor                : ErrorMatch -> DeleteOperation
+    Delete                   : DeleteOperation
+    InsertOnceFor            : ErrorMatch -> InsertOperation
+    InsertOnce               : InsertOperation
+    Insert                   : InsertOperation
+    DeleteFromListCorrection : DeleteOperation * List(ErrorMatch) -> Action
+    ChangeCorrection         : Fix -> Action
+    AddCorrectionFirst       : InsertOperation * Fix * DestinationMatch -> Action
+    AddCorrection            : InsertOperation * Fix * DestinationMatch -> Action
+    ErrorCorrection          : ID * STRING * ErrorMatch * List(Action) -> ERRC
+    ErrorCorrections         : List(ERRC) -> ERR
+    AutoTest                 : AT * COV * ERR -> Start
+    AutoTest                 : AT * COV -> Start
+    AutoTest                 : AT -> Start
+    CoveragePoint            : STRING * STRING * STRING * INT -> CoveragePoint
+    CoverageReport           : INT * INT * List(CoveragePoint) -> CoverageReport
+                             : String -> STRING
+                             : String -> INT
+                             : String -> ID
+
+
+signature
+  constructors
+    Some : a -> Option(a)
+    None : Option(a)
+
+
+signature
+  constructors
+    Cons : a * List(a) -> List(a)
+    Nil  : List(a)
+    Conc : List(a) * List(a) -> List(a)

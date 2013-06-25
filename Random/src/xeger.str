@@ -1,0 +1,312 @@
+module xeger
+
+imports 
+	libstratego-sdf
+	include/SpoofaxLang
+	random_test
+	read-sdf
+	RandomLibrary
+
+rules
+	
+	build-xeger:
+		iter-star(rest) -> result
+		with
+			r := <build-xeger> rest
+		;	result := <help-xeger-iter> iter-star(r)
+			
+	build-xeger:
+		iter(rest) -> result
+		with
+			r := <build-xeger> rest
+		;	result := <help-xeger-iter> iter(r)
+			
+	build-xeger:
+		d@iter-sep(rest,sep) -> result
+		with
+			result := <help-xeger-iter> iter-sep(<build-xeger> rest, <build-xeger>sep)
+			
+	build-xeger:
+		d@iter-star-sep(rest,sep) -> result
+		with
+			result := <help-xeger-iter> iter-star-sep(<build-xeger> rest, <build-xeger>sep)
+	
+	help-xeger-iter:
+		d@iter-star(r) -> result
+		with
+			if and(!r => cons#([xeger]), not(!cons => []))  then
+				result := cons#([<help-xeger-iter> iter-star(xeger)])
+			else
+				result := $[([r]){0,10}]
+			end	
+	
+	help-xeger-iter:
+		d@iter(r) -> result
+		with
+			if and(!r => cons#([xeger]), not(!cons => []))  then
+				result := cons#([<help-xeger-iter> iter(xeger)])
+			else
+				result := $[([r]){1,10}]
+			end	
+	
+	help-xeger-iter:
+		d@iter-sep(r,sep) -> result
+		with
+			if and(!r => cons#([xeger]), not(!cons => []))  then
+				result := cons#([<help-xeger-iter> iter-sep(xeger,sep)])
+			else
+				result := $[([r][sep]){0,9}[r]]
+			end	
+
+	help-xeger-iter:
+		d@iter-star-sep(r,sep) -> result
+		with
+			if and(!r => cons#([xeger]), not(!cons => []))  then
+				result := cons#([<help-xeger-iter> iter-star-sep(xeger,sep)])
+			else
+				result := $[(([r][sep]){1,9}[r])|[r]?]
+			end	
+
+
+	build-xeger:
+		conc(l,r) -> $[[r1][r2]]
+		with
+			r1:= <map(build-xeger);concat-strings<+ build-xeger> l
+		;	r2:= <map(build-xeger);concat-strings<+ build-xeger> r
+			
+	build-xeger:
+		range(from, to) -> $((from')-(to'))
+		with
+			from' := <build-xeger> from
+		;	to' := <build-xeger> to
+		
+	build-xeger:
+		numeric(c) -> c'
+		with
+			c' :=  c
+	
+	build-xeger:
+		short(c) -> c'
+		with
+			c' :=  c
+			
+	build-xeger:
+		present(t) -> $((t'))
+		with 
+			t' := <build-xeger> t
+		
+	build-xeger:
+		simple-charclass(t) -> $([(t')])
+		with
+			t' := <build-xeger> t
+		
+	build-xeger:
+		char-class(t) -> t'
+		with
+			t' := <build-xeger> t
+		
+	build-xeger:
+		opt(t) -> $[([t'])?]
+		with
+			t' := <build-xeger> t
+		
+	build-xeger:
+		numeric(a) -> a
+		with
+			<debug> "Build-Xeger: numeric FAIL!"
+		
+	build-xeger:
+		lit(a) -> $((a'))
+		with
+			a' := <escape-lit-string> a
+			
+	escape-lit-string:
+		a -> a'
+		with
+			a':= <string-as-chars(rec x(
+					(escape-regex-operators; [id, id | x])
+					<+ [id | x]
+					<+ []))> a
+	
+	escape-regex-operators: ['|' | cs] -> ['\', '|' | cs]
+	escape-regex-operators: ['&' | cs] -> ['\', '&' | cs]
+	escape-regex-operators: ['?' | cs] -> ['\', '?' | cs]
+	escape-regex-operators: ['*' | cs] -> ['\', '*' | cs]
+	escape-regex-operators: ['+' | cs] -> ['\', '+' | cs]
+	escape-regex-operators: ['{' | cs] -> ['\', '{' | cs]
+	escape-regex-operators: ['}' | cs] -> ['\', '}' | cs]
+	escape-regex-operators: ['~' | cs] -> ['\', '~' | cs]
+	escape-regex-operators: ['<' | cs] -> ['\', '<' | cs]
+	escape-regex-operators: ['>' | cs] -> ['\', '>' | cs]
+	escape-regex-operators: ['-' | cs] -> ['\', '-' | cs]
+	escape-regex-operators: ['@' | cs] -> ['\', '@' | cs]
+	escape-regex-operators: ['#' | cs] -> ['\', '#' | cs]
+	escape-regex-operators: ['(' | cs] -> ['\', '(' | cs]
+	escape-regex-operators: [')' | cs] -> ['\', ')' | cs]
+	escape-regex-operators: ['.' | cs] -> ['\', '.' | cs]			
+	escape-regex-operators: ['[' | cs] -> ['\', '[' | cs]
+	escape-regex-operators: [']' | cs] -> ['\', ']' | cs]
+	
+
+	build-xeger-sort-join(|s):
+		[]	-> []
+	
+	build-xeger-sort-join(|s):
+		[xegerToGenerate | xs] -> result
+		with
+			if not(!xegerToGenerate => []) then
+		 		<map(build-xeger);special-string-concat> xegerToGenerate => [l]
+		 	 else
+		 	 	l := []
+		 	end
+		 ;	rejections := <bagof-LexReject> s
+		 ; 	if  not(!rejections => []) then
+	 	  		rejections' := <map({rej,str_rej: 
+						?rej 
+					;	str_rej := <map(build-xeger);special-string-concat;concat-strings> rej
+					; 	<concat-strings> [
+					 		"&(~(",
+							str_rej,
+							"))" ]  
+						})> rejections 
+			;	l' := <concat-strings> ["((", l, ")", <concat-strings> rejections',")"]
+			else
+				l' := l
+			end
+		;	r' := <build-xeger-sort-join(|s)> xs
+		;	if  !r' => [] then
+				result := l'
+			else
+				result := $((l')|(r'))
+			end
+
+	build-xeger-sort:
+		s -> result'
+		with
+			// Get the possible lexical rules that include sorts or char-classes (possibleSorts)
+			// and the rules that only contain literals (possibleEmpties)
+			possibleSorts := <bagof-LexSorts;numberXeger(id)> s
+		;	nSorts := <XegerCount> ()
+		;	if !nSorts => 0 then
+		 		<concat-strings;debug> ["No lexical definition found for ",<write-to-string> s]
+		  	;	fail
+		  	end
+	 	;	sortToChoose := <mod> (<next-random;abs>, nSorts)
+	 	
+	 	;	<filter(?(_,sortToChoose))> possibleSorts => [x|xs]
+	 	;	!x => (xegerToGenerate, sortToChoose)
+ 		;	if not(!xegerToGenerate => []) then
+	 	 		<map(build-xeger);special-string-concat> xegerToGenerate => [result]
+	 	 	else
+	 	 		result := []
+	 	 	end
+	 	;	rejections := <bagof-LexReject> s
+	 	; 	if  not(!rejections => []) then
+	 	  		rejections' := <map({rej,str_rej: 
+						?rej 
+					;	str_rej := <map(build-xeger);special-string-concat;concat-strings> rej
+					; 	<concat-strings> [
+					 		"&(~(",
+							str_rej,
+							"))" ]  
+						})> rejections 
+			;	result' := <concat-strings> ["((", result, ")", <concat-strings> rejections',")"]
+			else
+				result' := result
+			end	
+	
+			
+	build-xeger:
+		<?sortCons@parameterized-sort(_,_) <+ ?sortCons@sort(_)>-> result
+		with
+			sort	:= <recognize-sort> sortCons
+		;	result 	:= <build-xeger-sort> sort  
+				
+			 	// 	;concat-strings;generate-string-from-reg(|<id>)
+		 	// end	
+
+	// Concatenates subsequent strings(double-quoted) in lists with also non-strings		 	
+	special-string-concat:
+		list -> list'
+		where <take(|2)> list
+		with
+			!list => [first|tail]
+		;	!tail => [second|rest]
+		;	if <conc-strings> (first,second) => newTerm then
+		 		list' := <conc;special-string-concat> ( [newTerm], rest)
+		 	else
+		 		list' := <conc> ([first], <special-string-concat> tail)
+		 	end 	
+	special-string-concat:
+		t -> t		  
+		
+	generate-terminal:
+		s -> terminal
+		with
+			x := <build-xeger-sort> s 
+		;	terminal :=  <use-xeger> x	
+	
+	use-xeger:
+		cons#(a) -> result
+		where not(<is-double-quoted> cons) 
+		with
+			result := <map(use-xeger)> a
+	
+	use-xeger:
+		""	-> ""
+		
+	use-xeger:
+		regex -> result
+		with
+			result := <rec gen({ r:
+					r := <generate-string-from-reg(|regex)>
+				;	if !r => "" then
+				 		gen
+				 	else
+				 		!r
+				 	end	 
+				 	})>
+	
+	numberXeger(s) =
+    	!(<id>, 0); thread-map(!(<s>,<Snd;inc>)); ?(<id>,numXeger);rules(XegerCount : _ -> numXeger)
+
+			
+	build-xeger:
+		comp(t) -> result
+		with
+			t' := <build-xeger> t
+			// This & part of the string is to prevent the generator from returning characters
+			// which are not supported (also the generator does not use the cardinality of sets
+			// thus /n and /t have higher probability than individual characters in sets
+			// thus all characters are written out (almost all)
+		;	result := <concat-strings> ["((~",t',")&[0123456789\\n\\t ~\\\"#$%&'()*+-./:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ-^_`abcdefghijklmnopqrstuvwxyz{|}~])"]
+			
+	build-xeger:
+		alt(l,r) -> result
+		with
+			l' := <build-xeger> l
+		;	r' := <build-xeger> r
+		;	if !l' => "" then
+		 		if !r' => "" then
+		 			result := ""
+		 		else
+		 			result := r'
+		 		end
+		 	else
+		 		if !r' => "" then
+		 			result:= l'
+		 		else
+		 			result:=$((l')|(r'))
+		 		end
+		 	end
+		 	
+	build-xeger:
+		label(_,rest) -> result
+		with
+			result := <build-xeger> rest
+			
+	build-xeger:
+		t -> t
+		with
+			<concat-strings;debug> ["Z: ", <write-to-string> t ]
+			

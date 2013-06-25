@@ -1,0 +1,363 @@
+module fix-errors
+
+imports
+  libstratego-lib
+  libstratego-gpp
+  libstratego-aterm
+  libstratego-sglr
+  libstratego-sdf
+  libstratego-xtc
+  random_test
+  
+rules
+
+	match-error-and-fix(|ast, errorCorrections):
+		[]	-> ast
+		where <debug> "match-error-and-fix DONE"
+		
+	
+	match-error-and-fix(|ast,errorCorrections):
+		list@[x|xs] -> result
+		with
+			if <match-error> x => (name,actions) then
+				ast' := <fix(|ast,x,errorCorrections)> (name,actions)
+			else
+				ast' := ast
+			;	!x => (node,message)
+			;	<concat-strings;debug> ["No Error Correction found for: \"",message,"\"", " : ", <write-to-string> node ]
+			end
+		;	result := <match-error-and-fix(|ast',errorCorrections)> xs
+	
+
+	fix(|ast, error, errorCorrections):
+		(name, []) -> ast
+		where
+			// No fix found for this error!!
+			<concat-strings;debug> ["Fixing with ",name," failed!"]
+	
+	fix(|ast, error, errorCorrections):
+		(name, [x|xs]) -> ast'
+		with
+			//<concat-strings;debug> [ "Hier kom ik langs met x= ",<write-to-string> x];
+			// Try applying one of the fixes
+			if <fixEach(|ast,error,errorCorrections)> (name,x) => ast' then
+				<concat-strings;debug> ["Fixed ",<write-to-string> error," with ",name] 
+			//;	<debug(!"fixed ast?:")> ast'
+			else
+				<fix(|ast,error,errorCorrections)> (name,xs) => ast'
+			end
+		
+		
+	fixEach(|ast, error, errorCorrections):
+		<	?(name,d@AddCorrection(InsertOnce(),params,location))
+		<+	?(name,d@AddCorrectionFirst(InsertOnce(),params,location))> -> ast'
+		where
+			<write-to-string;debug> error;
+			if not(<iset-contains(|name)> errorCorrections) then
+				sourceNode := <translate-fix(|name)> params
+			;	ast' := <process-location(|d,sourceNode,ast)> location
+			;	<iset-add(|name)> errorCorrections
+			;	<iset-elements;write-to-string;debug> errorCorrections
+			else
+		 		ast' := ast
+		 	end
+			//; <debug(!"AST?:")> ast'
+
+
+	
+	fixEach(|ast, error, errorCorrections):
+		<	?(name,d@AddCorrection(InsertOnceFor(key'),params,location))
+		<+	?(name,d@AddCorrectionFirst(InsertOnceFor(key'),params,location))> -> ast'
+		where
+			key := (name, <translate-fix(|name)> key')	
+		;	if not(<iset-contains(|key)> errorCorrections) then 
+				sourceNode := <translate-fix(|name)> params
+			;	ast' := <process-location(|d,sourceNode,ast)> location
+			;	<iset-add(|key)> errorCorrections
+		 	else
+		 		ast' := ast
+		 	end
+		 	
+	fixEach(|ast, error, errorCorrections):
+		<	?(name,d@AddCorrection(Insert(),params,location))
+		<+	?(name,d@AddCorrectionFirst(Insert(),params,location))> -> ast'
+		where
+				<iset-add(|name)> errorCorrections
+			;	sourceNode := <translate-fix(|name)> params
+			;	ast' := <process-location(|d,sourceNode,ast)> location
+
+	change-fix(|changeThis, changeTo):
+		changeThis -> changeTo
+		
+	fixEach(|ast, error, errorCorrections):
+		(name, d@ChangeCorrection(params)) -> ast'
+		where
+			changeTo := <translate-fix(|name)> params
+		;	changeThis := <translate-fix(|name)> Fix_Var(1) //TODO change this to a parameter on the rhs of the error correction
+		;	ast' := <oncetd(change-fix(|changeThis, changeTo))> ast
+		;	<iset-add(|name)> errorCorrections
+
+	fixEach(|ast, error, errorCorrections):
+		(name, d@DeleteFromListCorrection(DeleteFor(key'),params*)) -> ast'
+		where
+			key := (name, <translate-fix(|name)> key')	
+		;	if not(<iset-contains(|key)> errorCorrections) then
+				//ast' := <remove-all-but-one2(|params*, name)> ast
+				ast' := <oncetd(remove-one(|params*,name))> ast
+			;	<iset-add(|key)> errorCorrections
+			else
+				ast':= ast
+			end	
+
+	fixEach(|ast, error, errorCorrections):
+		(name, d@DeleteFromListCorrection(Delete(),params*)) -> ast'
+		where
+			if not(<iset-contains(|name)> errorCorrections) then
+				//ast' := <remove-all-but-one2(|params*, name)> ast
+				ast' := <oncetd(remove-one(|params*,name))> ast
+			;	<iset-add(|name)> errorCorrections
+			else
+				ast':= ast
+			end	
+
+	remove-one(|toBeRemoved,name):
+		ast -> ast'
+		where <is-list> ast
+		where <one({x: ?x ; <one(process-error-node(|x,name))> toBeRemoved => [removeThis] })> ast
+		with
+			ast' := <remove-one-from-list(|removeThis,[])> ast
+
+	
+			
+	remove-one-from-list(|removeThis,listBefore):
+		[removeThis|xs] -> list
+		with
+			list := <conc> (listBefore,xs)
+
+	remove-one-from-list(|removeThis,listBefore):
+		[x|xs] -> list
+		where not(!x => removeThis)
+		with
+			list := <remove-one-from-list(|removeThis,<conc>(listBefore,[x]))> xs
+
+	remove-all-but-one2(|toBeRemoved, name):
+		ast@[_|_] -> ast' 
+		with 
+			if <one( {x: ?x ; <one(process-error-node(|x,name))> toBeRemoved => butOne })> ast then
+				ast' := <conc> (<remove-all2(|toBeRemoved, name)> ast, [butOne])
+			else
+				ast' := <map(remove-all-but-one2(|toBeRemoved, name))> ast
+			end
+
+	remove-all-but-one2(|toBeRemoved, name):
+		cons#(body) -> ast
+		where
+			not(or(!cons => "", !cons => []))
+		with
+			ast := cons#(<map(remove-all-but-one2(|toBeRemoved, name))> body)
+
+	remove-all-but-one2(|toBeRemoved, name):
+		t -> t
+			
+	remove-all2(|toBeRemoved, name):
+		list@[_|_] -> list''
+		with 
+			list' := <filter({x: ?x ; not(<one(process-error-node(|x,name))> toBeRemoved)})> list
+		;	list'' := <map(remove-all2(|toBeRemoved, name))> list'
+		 
+	remove-all2(|toBeRemoved, name):
+		cons#(body) -> ast
+		where
+			not(or(!cons => "", !cons => []))
+		with
+			ast := cons#(<map(remove-all2(|toBeRemoved, name))> body)
+	
+	remove-all2(|toBeRemoved, name):
+		t -> t			
+	
+	process-location(|addCorrectionFunction,sourceNode,ast):
+		DestMatchString(s) -> ast
+		where
+			!ast => s
+			
+	process-location(|addCorrectionFunction,sourceNode,ast):
+		DestMatchInt(i) -> ast
+		where
+			i' := <string-to-int> i	
+		;	!ast => i'
+	
+	process-location(|addCorrectionFunction,sourceNode,ast):
+		DestMatchWildCard() -> ast 
+		
+	process-location(|addCorrectionFunction,sourceNode,ast):
+		d@DestMatchCons(cons,destNodeBody) -> ast'
+		where
+			// constructors match
+			!ast => cons#(body)
+		;	l := <zip> (body,destNodeBody)
+		;	<map({body',destNodeBody': 
+		 		?(body',destNodeBody') 
+		 	;	<process-location(|addCorrectionFunction,sourceNode,body')>destNodeBody' 
+		 	})> l => res
+		;	ast' := cons#(res)
+			
+	process-location(|addCorrectionFunction,sourceNode,ast):
+		d@DestMatchCons(cons,_) -> ast'
+		where
+			// constructors dont match
+			and(!ast => cons2#(body), not(!cons2 => []))
+		;	ast' := <oncetd({n: ?n; <process-location(|addCorrectionFunction,sourceNode,n)> d})> body
+	 	
+	process-location(|addCorrectionFunction,sourceNode,ast):
+		TargetNode() -> ast'
+		where
+			if !addCorrectionFunction => AddCorrectionFirst(_,_,_) then
+			 		ast' := <conc> ([sourceNode],ast)
+			else  //!addCorrectionFunction => AddCorrection(_,_,_) then
+			 		ast' := <conc> (ast, [sourceNode])
+			end
+	
+	translate-fix(|errCorrectionName):
+		Fix_Cons(i,params) -> cons
+		where
+			cons := i#(<map(translate-fix(|errCorrectionName))> params)
+	
+	translate-fix(|errorCorrectionName):
+		Fix_Conc(p1,p2) -> param
+		with
+			param := <conc-strings> (<translate-fix(|errorCorrectionName)> p1,<translate-fix(|errorCorrectionName)> p1)
+	
+	translate-fix(|errCorrectionName):
+		Fix_Int(i) -> param'
+		with
+			param' :=  <string-to-int> i
+		
+	translate-fix(|errCorrectionName):
+		Fix_Var(i) -> param
+		where 
+			param := <ErrorMatchParam> (errCorrectionName,i)
+	
+	translate-fix(|errCorrectionName):
+		Fix_Array(params) -> params'
+		where
+			params' := <map(translate-fix(|errCorrectionName))> params
+			
+	translate-fix(|errCorrectionName):
+		Fix_String(s) -> s'
+		where
+			s' :=<un-double-quote> s
+	
+	translate-fix(|errCorrectionName):
+		Fix_EmptyArray() -> []
+	
+	translate-fix(|errCorrectionName):
+		d -> d
+
+	fix-program(|allErrorCorrections,runTag,programPath) = 
+		?(program, errors) 
+	;	errors' := <map({n,m: ?(_,(n,m)) ; !(n,m) })> errors
+	;	errorCorrections := <new-iset>
+	;	<match-error-and-fix(|program, errorCorrections)> errors' => fixedProgram
+	;	<iset-addlist(|<iset-elements>errorCorrections)> allErrorCorrections
+	// Does it parse?	
+	;	print-parse-cycle(|fixedProgram, $[[runTag]fp], <iset-elements> allErrorCorrections) => (ppProgram, parsedProgram) 
+
+	// Check for Ambiguities
+	;	<bottomup(try(check-for-amb(|$[[runTag]fa])))> parsedProgram
+	
+	// Rewrite app file
+	;	<write-log(|programPath)> ppProgram
+	;	<iset-elements;debug(!"Error Corrections:")> errorCorrections
+	;	!(fixedProgram,ppProgram,parsedProgram, <iset-elements> errorCorrections)
+
+	 	 		
+	match-error-node:
+		(node,name) -> actions
+		where
+			pattern := <ErrorSourceNodePattern> name
+		; 	<process-error-node(|node,name)> pattern
+		;	actions := <ErrorCorrectingAction> name
+		 	 
+	process-errorMatchCons(|name,cons,body):
+	 	d@cons#(b) -> d
+	 	where
+	 		if not(<eq> (<length> b,<length> body)) then
+	 			fail
+	 		end
+	 	;	l := <zip> (b,body)
+		;	<map({b',body': 
+		 		?(b',body')
+		 	;	<process-error-node(|b',name)> body' 
+		 	})> l
+				
+	process-error-node(|node,name):
+		d@ErrMatchCons(cons,body) -> node
+		where
+			<process-errorMatchCons(|name,cons,body)> node
+				
+	process-error-node(|node,name):
+		d@ErrMatchParam(i) -> node
+		where
+			toMatch := <ErrorMatchParam> (name,i) 
+		;	!node => toMatch
+				
+	process-error-node(|node,name):
+		d@ErrMatchParamBind(i) -> d
+		where
+			rules(ErrorMatchParam : (name, i) -> node)
+		 	
+	process-error-node(|node,name):
+		d@ErrMatchString(s) -> node
+		where
+			s' := <un-double-quote>	
+		;	!node => s'
+		 	
+	process-error-node(|node,name):
+		d@ErrMatchINT(i) -> node
+		where
+			i' := <string-to-int> i
+		;	!node => i'
+	
+	process-error-node(|node,name):
+		d@ErrMatchWildCard() -> node				
+	
+	match-error:
+		(node,message) -> (name,actions)
+		where
+				//<write-to-string;debug(!"trying to match message: ")> message;
+			message' := <split-at-space> message
+		;   allErrorNames := <all-keys-ErrorMessagePattern>
+		;	<map({name': 
+			  		?name'
+			  	;	!(name',<ErrorMessagePattern> name')}) 
+		  	;	match-error-rec(|node,message')> allErrorNames => (name,actions)
+ 
+	match-error-rec(|node,message):
+		[(name, toMatch)|xs] -> (name', actions')
+		where
+		  	toMatch' := <split-at-space> toMatch
+		;	if (<match-error-rec2(|node,message,name)> toMatch') => actions then
+		 		actions' := actions
+		 	;	name' := name
+		 	else
+				<match-error-rec(|node,message)> xs => (name',actions')
+			end
+	
+	match-error-rec(|node,message):
+		[] -> <fail>
+
+		
+	match-error-rec2(|node,message,name):
+		[x|xs] -> actions
+		where
+			if <filter(?x)> message => [] then
+				fail
+			else
+				if !xs => [] then
+					actions := <match-error-node> (node,name)
+				else
+				 	actions := <match-error-rec2(|node,message,name)> xs
+				end
+			end	
+			 
+ 

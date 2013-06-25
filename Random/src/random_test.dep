@@ -1,0 +1,21 @@
+random_test: \
+	./grammar-coverage.str \
+	./shrink.str \
+	./include/NameDefinitionLanguage.str \
+	./read-nbl.str \
+	./nbl.str \
+	./fix-errors.str \
+	./include/Autotest.str \
+	./random_settings.str \
+	./RandomLibrary.str \
+	./xeger.str \
+	./generate-program.str \
+	./include/SpoofaxLang.str \
+	./random_test.str \
+	./read-sdf.str \
+	/nix/store/06zfx5hcbghhrwjg4jnc7af9vlzxp0a5-strategoxt-1.8pre24566/share/libstratego-xtc.rtree \
+	/nix/store/06zfx5hcbghhrwjg4jnc7af9vlzxp0a5-strategoxt-1.8pre24566/share/libstratego-sdf.rtree \
+	/nix/store/06zfx5hcbghhrwjg4jnc7af9vlzxp0a5-strategoxt-1.8pre24566/share/libstratego-sglr.rtree \
+	/nix/store/06zfx5hcbghhrwjg4jnc7af9vlzxp0a5-strategoxt-1.8pre24566/share/libstratego-aterm.rtree \
+	/nix/store/06zfx5hcbghhrwjg4jnc7af9vlzxp0a5-strategoxt-1.8pre24566/share/libstratego-gpp.rtree \
+	/nix/store/06zfx5hcbghhrwjg4jnc7af9vlzxp0a5-strategoxt-1.8pre24566/share/libstratego-lib.rtree

@@ -1,0 +1,108 @@
+module random_settings
+
+imports
+  libstratego-lib
+  libstratego-gpp
+  libstratego-aterm
+  libstratego-sglr
+  libstratego-sdf
+  libstratego-xtc
+  include/Autotest
+
+rules
+	extract-settings:
+		d@AutoTest(ATSettings(settings)) -> d
+		with
+			<map(extractS)> settings
+
+	extract-settings:
+		d@AutoTest(ATSettings(settings1),COVSettings(settings2),ErrorCorrections(err*)) -> d
+		with
+			<map(extractS)> settings1
+		;	<map(extractS)> settings2
+		;	<map(extractS)> err*
+		
+	extract-settings:
+		d@AutoTest(ATSettings(settings1),COVSettings(settings2)) -> d
+		with
+			<map(extractS)> settings1
+		;	<map(extractS)> settings2
+
+	extract-settings:
+t->t
+where
+<write-to-string;debug> t
+	
+	extractS:
+		d@ATtag(tag)->d
+		with
+			rules(TestTag := tag) 
+	
+	extractS:
+		d@MaxCount(maxC) -> d
+		with
+			maxC' := <string-to-int>(maxC)
+		;	rules(MaxCount := maxC')
+		 	
+	extractS:
+		d@MaxIter(maxI) -> d
+		with
+			maxI' := <string-to-int>(maxI)
+		;	rules(MaxIter := maxI')
+	
+	extractS:
+		d@MaxRec(maxR) -> d
+		with
+			maxR' := <string-to-int> maxR
+		;	rules(MaxRec := maxR')
+	
+	extractS:
+		d@ErrorCorrection(name,messagePattern,sourceNodePattern,actions) -> d
+		with
+			messagePattern' := <un-double-quote> messagePattern
+		;	rules(	ErrorMessagePattern : name -> messagePattern'
+		 			ErrorCorrectingAction : name -> actions
+		 			ErrorSourceNodePattern : name -> sourceNodePattern )
+	
+	extractS:
+		d@TerminalPoolSize(i) -> d
+		with
+			i' := <string-to-int> i
+		;	rules(TerminalPoolSize:= i')
+	
+	extractS:
+		d@NumberOfRuns(nr) -> d
+		with
+			nr' := <string-to-int> nr	
+		;	rules(NumberOfRuns:= nr')
+	
+	extractS:
+		d@TargetLanguage(language) -> d
+		with
+			rules(Language := language)
+			
+	extractS:
+		d@TargetStrategy(strategy, location) -> d
+		with
+			location' := <un-double-quote> location
+		;	rules(	TargetStrategy 			:= strategy
+		 			LocationTargetStrategy 	:= location')
+	
+	extractS:
+		d@CoveredFiles(files) -> d
+		with
+			files' := <map(un-double-quote)> files	
+		;	rules(CoveredFiles := files')
+	
+	extractS:
+		d@IgnoreSorts(sorts*) -> d
+		with
+			sorts' := <map(un-double-quote)> sorts*
+		;	<map({c: ?c;rules(IgnoreSorts: c) })> sorts'
+	
+	extractS:
+		d@TestFolder(folder) -> d
+		with
+			folder' := <un-double-quote> folder
+		;	rules (TestFolder := folder')
+

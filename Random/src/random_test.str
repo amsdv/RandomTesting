@@ -1,0 +1,337 @@
+module random_test
+
+imports
+  libstratego-lib
+  libstratego-gpp
+  libstratego-aterm
+  libstratego-sglr
+  libstratego-sdf
+  libstratego-xtc
+  read-sdf
+  generate-program
+  random_settings
+  fix-errors  
+  nbl
+  shrink
+  grammar-coverage
+
+rules
+
+	
+
+	main = switch-input <+ generate-random-tests
+
+	switch-input:
+		[_,"shrink"] -> None()
+		with
+			shrink-test
+
+	switch-input:
+		[_,"grammar-measure"] -> None()
+		with	
+			webdsl-check-grammar-measure
+
+		
+	has-productions-with-no-constructors=
+		not(?alt(_,_)) ; sort:= <recognize-sort>  
+	;	<bagof-CFSorts> sort 
+	;	filter(not(<CFCons> (sort,<id>)))
+	;	not(?[]) 
+	; 	filter({injectable: filter-prods ; ?[injectable] ; <is-or-leads-to-shrinkable-sort> injectable}) 
+	;	not(?[]) 
+	;	Hd
+
+	
+	write-shrink-sort=
+		?(type,anno)
+	;	rules(ShrinkSort :+ type -> anno)
+		
+	parse-settings=
+		?fileName
+	;	tbl := <ReadFromFile> $[include/Autotest.tbl]
+	;	<parse-string(|tbl)> fileName
+
+	parse-str=
+		?str
+	;	tbl := <ReadFromFile> $[include/StrategoStratego.tbl]
+	;	<parse-string(|tbl)> str
+	 	
+	parse-pp=
+		?ppProgram
+	;	tbl := <ReadFromFile> $[include/[<Language>]/[<Language>].tbl]
+	;	<parse-string(|tbl)> ppProgram
+		
+	generate-random-tests=
+	// Read configuration
+		?[_,fileName]
+	;	<write-to-string;debug> fileName
+	;	settings := <read-text-file> fileName
+	;	<parse-settings;extract-settings> settings
+	
+	;	Language;debug
+	
+	; 	read-language
+	;	find-terminal-paths(|0)
+
+	;	rules(
+			NonInjectable : (("ForExp", 5),"Var")
+			NonInjectable : (("ForCount", 4),"Var")
+			NonInjectable : (("ForCount", 5),"Var")
+			NonInjectable : (("ForCountStmt", 4),"Var")
+			ChanceOfFailure := -1
+		)
+
+	// Read NamebindingDefinitionLanguage
+	//;	read-NBL
+ 	//;	<get-injections-per-iter(|"","Entity",[]);write-to-string;debug> "Entity"#(["I1C_7A6V_4d","X9_c93PPL",[]])
+	//; <exit> -53
+	// Generate random programs!
+	;	<debug> "Generating random tests" 
+	
+	;	generate-random-test(|<NumberOfRuns>) 
+ 	 
+	
+	generate-random-test(|num)=
+	{|Terminals,CoveredCons:
+		!num => 0 <+
+	 	 <concat-strings;debug> ["Runs remaining: ", <write-to-string> num]
+	; 	rules( ConsCount := 0 )
+	//	Generate Terminals
+	;	pre-generate-terminals(|<TerminalPoolSize>)
+
+	// Pick a start symbol
+	;	startSymbol* := <all-keys-SDFStart> ; debug(!"Start Symbols:")
+	;	startSymbol := <randomly-pick-from-list> startSymbol*
+	
+	// Generate AST
+	;	 
+	{|DefineParentSorts:
+		ast := <generate-program(|startSymbol,[],0,0,<MaxCount>, [])>
+	; 	program := <all-keys-NBLInjection;inject-NBL-definitions(|ast)>  
+	|} 
+	; 	if <oncetd(?lit(_))> program then
+			<debug> "foook"
+		end
+
+	// 	Generate new runTag
+	;	runTag := <concat-strings> [ "test", <int-to-string> num ]
+
+	// Does it parse?	
+	;	if not(print-parse-cycle(|program, runTag, []) => (ppProgram, parsedProgram))  then
+			generate-random-test(|<addi> (num, -1)) 
+		; <debug(!"Injection keys: ")> <all-keys-NBLInjection>	;	<exit> 0
+		end
+
+	// Check for Ambiguities
+	;	program' := <bottomup(try(check-for-amb(|runTag)))> parsedProgram
+
+	// Add extra line, just to be sure!
+	;	programPath := $[[<PROJECTPATH>]/Tests/[<Language>]/test.app]		
+	;	<write-log(|programPath)> ppProgram
+
+	// Delete cache
+	;	remove-folders(|<CACHEPATHS>)
+
+	// Run with coverage!
+	;	strategy := "webdslc-main"
+	;	jarURL := $[file:/home/andre/Documents/Stratego/bin/WebDSL/bin/webdsl.jar]
+	;	testFolder := $[[<PROJECTPATH>]/Tests/[<Language>]]
+	;	input := ["test", "-i", $[../Tests/WebDSL/test.app] , "--verbose" , "2", "--servlet"]
+	;	<run(|strategy,jarURL, $[[testFolder]/[runTag]])> input => result
+	;	<concat-strings;debug> ["Strategy Result:", <write-to-string> result]
+
+	;	clear-fix-runtag
+	
+	// Check result to apply error fixing or report crash
+	;	<check-results(|
+			<new-iset>,runTag,
+			strategy,jarURL,testFolder,program,ppProgram,
+			parsedProgram,num,programPath,input)> result	
+	
+	//	Do another run!
+	;	generate-random-test(|<addi> (num,-1)) |}
+	
+	check-results(|allErrorCorrections,runTag,strategy,jarURL,testFolder,program,ppProgram,parsedProgram, num, programPath,input) = 
+		? result
+		// Check if crashed
+	;	if !result => "crashed" then
+			<debug> "Strategy crashed!"
+		;	write-test(|$[[runTag]c], program, ppProgram,
+						parsedProgram, <iset-elements> allErrorCorrections)
+		;	generate-random-test(|<addi> (num, -1)) ; <debug(!"Injection keys: ")> <all-keys-NBLInjection>	
+		;	<exit> 0
+		end
+	// Check if errors were found
+	;	if !result => ("Errors", errors) then debug(!"Errors Found!");
+			if not(<fix-program(|allErrorCorrections,runTag,programPath)> (program,errors) 
+			  => (fixedProgram, ppFixedProgram, parsedFixedProgram, lastErrorCorrections)) then
+				write-test(|runTag, program,ppProgram,parsedProgram,
+					<iset-elements> allErrorCorrections)	
+			;	generate-random-test(|<addi> (num,-1)) 
+			; 	<debug(!"Injection keys: ")> <all-keys-NBLInjection>	
+			;	<exit> 0
+			end
+		;	runTag' := $[[runTag]_[<inc-fix-runtag>]f]
+		;	if !lastErrorCorrections => [] then
+				<debug> "Fixed as much as possible!"			
+			;	write-test(|$[[runTag]f_done], fixedProgram, ppFixedProgram, 
+						parsedProgram, <iset-elements> allErrorCorrections)
+			else
+				write-test(|runTag',fixedProgram,ppFixedProgram,
+					parsedFixedProgram, lastErrorCorrections)
+			// Delete cache before run
+			;	remove-folders(|<CACHEPATHS>)
+			;	<run(|
+					"webdslc-main",jarURL, $[[testFolder]/[runTag']])> input => result'
+			;	<check-results(|
+					allErrorCorrections,runTag,strategy,
+					jarURL,testFolder,fixedProgram,ppFixedProgram,
+					parsedProgram,num,programPath,input)> result'
+			end
+		else
+				<write-to-string;debug(!"No errors found, result: ")> result 
+			; 	write-test(|runTag, program, ppProgram, parsedProgram, 
+					<iset-elements> allErrorCorrections)
+		end
+	
+
+	print-parse-cycle(|program, runTag, errorCorrections) =
+		ConsCount;debug(!"ConsCount:"); 
+	// Pretty print and reparse cycle
+		ppProgram :=  	<concat-strings>[<pp-program> program, "\n", "\r"]
+	; 	parsedProgram  :=	<parse-pp> ppProgram	
+	// Check if parsing was successful
+	;	if !parsedProgram => "error"#(_) then
+			<debug> "Parsing failed!"
+		;	write-test(|<conc-strings> (runTag,"p"),program, ppProgram, parsedProgram, errorCorrections)		
+		//	Do another run!
+		;	fail
+		end
+	;	!(ppProgram, parsedProgram)
+
+	write-test(|runTag, program, ppProgram, parsedProgram,errorCorrections)=
+		if not(!errorCorrections => []) then
+			errorCorrectionsPath := $[[<PROJECTPATH>]/Tests/[<Language>]/[runTag]/corrections.txt]
+		;	<write-to-string;write-log(|errorCorrectionsPath)> errorCorrections
+		end 	
+		// Log AST
+		;	astPath := $[[<PROJECTPATH>]/Tests/[<Language>]/[runTag]/program.aterm]
+		;	<pp-aterm-box; box2text-string(|80)> program => ppAST
+		;	<write-log(|astPath)> ppAST	
+		// Log Pretty-Print
+		;	programPath := $[[<PROJECTPATH>]/Tests/[<Language>]/[runTag]/program.app]		
+		;	<write-log(|programPath)> ppProgram
+		// Log AST after parsing
+		;	astPath' := $[[<PROJECTPATH>]/Tests/[<Language>]/[runTag]/program-after-parsing.aterm]
+		;	<pp-aterm-box; box2text-string(|80)> parsedProgram => ppAST'
+		;	<write-log(|astPath')> ppAST'
+		// Log Constructor Coverage
+		;	coveredCons := <all-keys-CoveredCons;map({a,b: ?(a,b) ; !$[[a][<write-to-string>b]]}) > 		
+		;	headcReport := $[Coverage: [<length> coveredCons]/[<AllConsCount>]] 
+		;	bodycReport := <separate-by(|",");concat-strings> coveredCons		
+		;	consReport := <concat-strings> [headcReport,"\r\n",bodycReport]
+		;	consCoveragePath := $[[<PROJECTPATH>]/Tests/[<Language>]/[runTag]/constructor-coverage]
+		;	<write-log(|consCoveragePath)> consReport
+	
+	PROJECTPATH=!"/home/andre/Documents/Stratego/Random"
+	CACHEPATHS=!["/home/andre/Documents/Stratego/Random/Tests/WebDSL/.webdsl-parsecache"]
+	
+	pp-program:
+		program -> result
+		with
+		 	pptbl := <parse-pptable-file> $[include/[<Language>]/[<Language>]-pretty.pp]
+		;  	![pptbl]
+		;	   where(tbl := <new-hashtable>)
+	    ; 	map(
+	      		
+		        ?PP-Table(<id>)
+		        
+		        ; reverse
+		        ; map(pptable-desugar-entry; pptable-store-entry(|tbl))
+		      )
+		; 	<ast2abox(|[pptbl]);box2text-string(|120)> program => toTest
+		;	result:= toTest
+
+    numberItems =
+    !(<id>, 0); thread-map(!(<id>,<Snd;inc>)); ?(<id>,numStart);rules(ItemCount := numStart)
+
+	check-for-amb(|runTag):
+		d@amb(body) -> t
+		with
+			t := <randomly-pick-from-list> body
+		;	ambName := <newname> "amb"
+		;	ambAtermReportFile	:= $[[<PROJECTPATH>]/Tests/[<Language>]/[runTag]a/[ambName].aterm]
+		;	ambReportFile	:= $[[<PROJECTPATH>]/Tests/[<Language>]/[runTag]a/[ambName].app]
+		
+		;	<debug> "Ambiguity found, logging to:"
+		;	<pp-aterm-box;box2text-string(|80);write-log(|ambAtermReportFile);debug> d
+		;	t' := <pp-amb> t
+		;	<write-log(|ambReportFile)>  t'
+
+	pp-amb:
+		"amb"#(t) -> printed
+		with
+			printed := <map(pp-amb);concat-strings> t
+
+	pp-amb:
+		list@[x|xs] -> printed
+		with
+			printed := <map(pp-amb);concat-strings> list
+
+	pp-amb:
+		d@cons#(body) -> printed
+		where
+			not( <is-string> d) ;  not( <is-list> d)
+		with
+			printed := <pp-program> d
+	
+	pp-amb:
+		t -> t
+		where <is-string> t
+	
+	pp-amb:
+		i -> i'
+		where <is-int> i ; i':= <write-to-string> i	
+	
+	randomly-pick-from-list:
+		list -> t
+		with
+			l := <length> list
+		;	n := <mod> (<next-random;abs>,l)
+		; 	t := <get-item-from-list(|n)> list
+
+
+	get-item-from-list(|n)=
+		?list
+	;	<write-loop-iterator> n
+	;	<while(get-item-from-list-loopc, Tl)> list
+	;	Hd
+
+	get-item-from-list-loopc=
+		?list
+	;	not(<eq> (<LoopIterator>,0))
+	;	<subti;write-loop-iterator> (<LoopIterator>,1)
+	;	!list
+	
+	write-loop-iterator=
+		?n
+	;	rules(LoopIterator := n)
+
+	read-language=
+	// Parse Language Definition
+	  	file := $[./include/[<Language>]/[<Language>].def]
+	;	ast_sdf := <parse-sdf-definition-file;sdf-parsefix> file
+	;	sdf := <read-sdf> ast_sdf 
+
+
+	clear-fix-runtag=
+		<write-FixRuntag> 0
+
+	inc-fix-runtag=
+		i := <FixRuntag;inc>
+	;	<write-FixRuntag> i
+	;	!i
+
+	write-FixRuntag=
+		?i
+	;	rules(FixRuntag := i)

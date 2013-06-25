@@ -1,0 +1,76 @@
+automatic test
+	target language: WebDSL
+	target strategy: editor-analyze	@ "trans/webdsl_editor.str"
+	test tag: Test
+	nr# runs: 500
+	max term count: 3000
+	max recursion: 15
+	terminal pool size: 50
+	test folder: "TestFolder"
+	ignore sorts: "ExternalScopeVar", "GenericSort", "Module", "Imports"
+	max iteration: 50 // Must be at least 2!
+
+
+coverage settings
+	covered files: "trans/webdsl_editor.str"
+
+error correction // for WebDSL
+
+//noRoot:
+//	"no root page root() defined.", _ 	->	insert once DefinePage([],"root",[], None() ,[]) @ ApplicationDefs(_,$here,_)
+//										or	insert once Section("rootFixSection" ,[DefinePage([],"root",[], None() ,[])]) @ Application(_,$here)
+
+//bool:											
+	//"should be of type Bool"	, $_1 -> change to True()
+
+//typeNotDefined:
+//	"Type not defined:", SimpleSort($_1)	->	insert once for ($_1) EntityNoSuper($_1,[]) @ ApplicationDefs(_,$here,_)
+//											or	insert once for ($_1) Section($concat("typeNotDefSection",$_1),EntityNoSuper($_1,[])) first@ Application(_,$here)
+
+//multiDefVar1:
+//	"defined multiple times.", VarDeclInit($_1,_,_)			-> delete for ($_1) VarDeclInit(@_1,_,_) or VarDeclInitInferred(@_1,_) from list
+
+//multiDefVar2:
+	//"defined multiple times.", VarDeclInitInferred($_1,_)	-> delete for ($_1) VarDeclInit(@_1,_,_) or VarDeclInitInferred(@_1,_) from list
+
+//multiDefSecurityEntity:
+	//"Entity 'SecurityContext' is defined multiple times.", _ -> delete AccessControlPrincipal(_,_) from list
+
+
+//indexNotInt:
+	//"Index must be of type Int,", $_1		-> change to Int(1)
+	
+//wrongPlaceForRefArgument:
+	//"only allowed in formal parameters of pages, templates, or ajax templates", Ref($_1) -> change to $_1
+
+
+// error correction //for Mobl
+// 
+// noRoot:
+// 	 "no 'root' screen" , _ -> 
+// 	 insert ScreenNoReturnType([],"root",[],[]) @ Application(_,$here)
+// 
+// simpleTypeNotDef : 
+// 	"Type is not defined:" , SimpleType($_1)  -> 
+// 	insert EntityNoSuper([], $_1, []) first@ Application(_,$here)       
+// 
+// tuple0 : 
+// 	"Type is not defined: mobl::Tuple0<>" , $_1 -> 
+// 	insert once ExternalTypeNoSuper([],$_1,[]) first@ Application(_,$here)
+
+// Generation of test cases by both random generation and mutation of existing hand written code
+// Depth and count extrapolation from existing code.
+
+// // Exp : type-of-is-good
+// // 
+// // isExp 
+
+// // 
+// // foo =
+// // 	?t;
+// // 	sort := <origin-sort> t;
+// // 	!sort => "Exp"
+// 
+// for all JSEXP( a,b) 
+// 
+//   e: Exp => <type-of>e + <constraint-error>e

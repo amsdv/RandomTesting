@@ -1,0 +1,761 @@
+module nbl
+
+imports
+	read-nbl
+	random_test
+	random_settings
+	generate-program
+	include/SpoofaxLang
+	include/NameDefinitionLanguage
+	libstratego-lib
+	libstratego-gpp
+	libstratego-aterm
+	libstratego-sglr
+	libstratego-sdf
+	libstratego-xtc
+
+signature constructors
+	NBLType : Term 
+	NBLRef  : Term
+	PreviousScope : Term -> Term
+	DefineHere : Term -> Term
+	InjectGoTo : Term -> Term
+	InjectHere : Term
+
+/**
+ * Rules for extracting the identifier from defines or replace it with a unique one
+ **/
+rules
+
+	extract-or-replace-identifier(|term, unique, valuesInScope):
+		realTerm -> (realTerm', identifier)
+		where !unique => "Unique"#([])
+		with
+			if <gt> (<mod> (<next-random;abs>,100),<ChanceOfFailure>) then
+				if !term => cons#(body) then
+					children := <length> body
+				else
+					children := 0
+				end
+			;	identifier-sort := <get-identifier-sort(|"",children,valuesInScope)> (term,-1)
+			;	do-while( 
+					<generate-terminal> identifier-sort
+				,
+				//	Checks whether the identifier exists in the current scope 
+				//	for the given namespace
+				{identifier:
+					?identifier
+				;	not(<filter(?identifier)> valuesInScope => [])} 
+			)
+			;	?identifier
+			;	realTerm' := <replace-identifier(|identifier,term)> realTerm
+			else
+				realTerm' := realTerm
+			;	identifier := <extract-identifier(|realTerm)> term
+			end
+	
+	get-identifier-sort(|not_used,children,valuesInScope):
+		(t@cons#(body),_) -> sort
+		where not(<is-list> t)
+		where not(<is-string> t)
+		where
+			results := <numberItems;filter(get-identifier-sort(|cons,<length>body,valuesInScope))> body
+		;	!results => [sort]
+
+	get-identifier-sort(|cons,children,valuesInScope):
+		([x|xs],i) -> sort
+		where
+			if not(sort := <get-identifier-sort(|cons,children,valuesInScope)> (x,i)) then
+				sort := <get-identifier-sort(|cons,children,valuesInScope)> (xs,i)
+			end
+
+	get-identifier-sort(|cons,children,valuesInScope):
+		(NBLRef(),i) -> sort'
+		with
+			s := <SDF-sort> (cons,children, i)
+		;	sort := <try(help-remove-cardinality-ops)> s
+		;	<debug(!"gis-sort:")> sort
+		; 	if not(<LexSorts> sort) then
+					debug(!"gis-1:") ;
+				sort' := <get-direct-lex-sort>	sort
+							;	<debug(!"gis-2:")> sort'
+			else
+				sort' := sort
+			;	<debug(!"gis-3:")> sort'
+			end
+
+	get-direct-lex-sort:
+		sort -> lexSort
+		with
+			productions := <bagof-CFSorts> sort
+		;	productions' := <filter({s,p:
+				?p
+			;	<filter-prods> p
+			;	all(
+					recognize-sort 
+				; 	try(help-remove-cardinality-ops) 
+				;	?s
+				;	LexSorts
+				;	!s
+				) => [<id>]
+			})> productions
+		;	lexSort := <randomly-pick-from-list> productions'
+		
+			
+	help-remove-cardinality-ops:
+		<?iter(s) <+ ?iter-star(s) <+ ?iter-sep(s,_) <+ ?iter-star-sep(s,_) 
+			<+ ?opt(s) <+ ?alt(s,_)	> -> s
+
+	replace-identifier(|uniqueIdentifier,term):
+		t@cons#(body) -> result
+		where not(<is-list> t)
+		where not(<is-string> t)
+		where !term => cons#(body')
+		with
+			result := cons#(<replace-identifier(|uniqueIdentifier,body')> body)
+
+	replace-identifier(|uniqueIdentifier,list):
+		[x|xs] -> result
+		where <is-list> list
+		;	!list => [x'|xs']
+		;	if not( result := Cons(<replace-identifier(|uniqueIdentifier,x')> x, xs) ) then
+				result := Cons(x,<replace-identifier(|uniqueIdentifier,xs')> xs)
+			end
+
+	replace-identifier(|uniqueIdentifier,term):
+		_ -> uniqueIdentifier
+	where
+		!term => NBLRef()
+
+	// Uniqueness is not required so no need to check if the term repeats itself and we can just use
+	// the existing one!
+	extract-or-replace-identifier(|term, unique,valuesInScope):
+		realTerm -> (realTerm, identifier)
+		where not(!unique => "Unique"#([]))
+		with
+			identifier := <extract-identifier(|realTerm)> term
+
+			
+
+	extract-identifier(|realTerm):
+		t@cons#(body) -> result
+		where not(<is-list> t)
+		where not(<is-string> t)
+		where !realTerm => cons#(realBody)
+		with
+			result := <extract-identifier(|realBody)> body
+
+	extract-identifier(|realList):
+		[x|xs] -> result
+		where <is-list> realList
+		;	!realList => [x'|xs']
+		;	if <extract-identifier(|x')> x then
+				result := x'
+			else
+				result := <extract-identifier(|xs')> xs
+			end
+
+	extract-identifier(|term):
+		NBLRef() -> term
+
+/**
+ * Rules for updating Scope for NBL algorithm
+ **/
+rules
+	update-NBL-scope: 
+		(sort,rule) -> updateAnno
+		where cons := <get-SDF-constructor> (sort, rule)
+		where
+			key := <create-key> cons#(<filter-prods>rule)
+		;	scopes := <bagof-NBLKey2Scope;concat> key
+		;	not(!scopes => [])  
+	
+		with 
+			updateAnno := <newname> cons
+		;	<nub;map({namespace: ?namespace; <write-current-scope> (namespace,updateAnno,key)})> scopes
+
+	write-current-scope=
+		?(namespace,anno,key)
+	// Link to upper scope
+	;	if current_scope := <CurrentScope> namespace then 
+			<write-ns> (namespace, anno, PreviousScope(current_scope)) 
+		end
+	;	if not(<bagof-Namespace;filter(?PreviousScope(anno))> (namespace,anno)=>[]) then
+			fail
+		end
+	;	rules(
+			CurrentScope :+ namespace -> anno
+			Scope2Key : anno -> key
+		)
+
+
+/**
+ * Rules for getting current referrals for NBL algorithm
+ **/
+rules
+
+	// Gets all current definitions of the given referrals
+	// Input should be a list of referrals [ (namespace,term), ... ]
+	nbl-current-definitions=
+		filter(
+			{namespace,term:
+					?(namespace,term)
+				;	<get-values-from-current-scope> namespace
+				;	not(?[]) 
+				; !(<id>,namespace,term)
+			}
+		)
+
+	// Gets values from current scope for the given namespace
+	get-values-from-current-scope=
+		?namespace
+	;	currentScope := <CurrentScope> namespace		
+	;	!(namespace, currentScope)
+	; 	bagof-Namespace ; create-full-scope(|<new-iset>,namespace) ; iset-elements
+	
+	create-full-scope(|iset,namespace):
+		[value|xs] -> return
+		where not(!value => PreviousScope(_))
+		where not(!value => [])
+		with
+			if not(<iset-contains(|value)> iset) then
+				<iset-add(|value)> iset
+			end
+		;	return := <create-full-scope(|iset,namespace)> xs
+
+	create-full-scope(|iset,namespace):
+		[PreviousScope(anno)|xs] -> return
+		with
+			<bagof-Namespace;nub;debug(!"bagof:");create-full-scope(|iset,namespace)> (namespace,anno)
+		;	return := <create-full-scope(|iset,namespace)> xs
+
+	create-full-scope(|iset,namespace):
+		[] -> iset
+
+	// Gets all possible referrals this "constructor"(represented by its (sort,rule)
+	// has in the corresponding NBL
+	get-NBL-referrals:
+		(sort,rule) -> refs
+		where	
+			<get-SDF-constructor> (sort, rule) => constructor
+		; 	refs := <get-nbl-references> (constructor, rule)
+
+	get-nbl-references:
+		t@cons#(body) -> references
+		where not(!cons => "")
+		with
+			key := <create-key> t
+		;	references := <bagof-NBLKey2Refer> key
+
+	get-nbl-references=
+		?(cons,body)
+	;	body' := <filter-prods> body
+	;	<get-nbl-references> cons#(body')
+
+	
+	
+/**
+ * Rules for reusing an already defined name.
+ **/
+rules	
+
+	// After getting a list of possible referrals, 
+	// pick one randomly and generate a valid refers to constructor 
+	use-nbl-referral(|path,rec,count,maxCount):
+		values -> term'
+		with		
+			value := <randomly-pick-from-list> values 
+		// Construct correct term from value	
+		;	!value => (possibleIdentifiers,_,term) 
+		;	identifier := <randomly-pick-from-list> possibleIdentifiers
+		;	term' :=	<random-generate-referral(|identifier,path,rec,count,maxCount)> term
+
+	/*random-generate-referral(|path, rec, count,maxCount):
+		(namespace, term@cons#(body)) -> cons#(body')
+		where not(!cons => "")		
+		with
+			identifier := <bagof-Namespace;randomly-pick-from-list> namespace
+		;   body' := <random-generate-referral-body(|identifier,path,rec,count,maxCount)> term
+	*/
+
+	/*random-generate-referral(|identifier, path, rec, count,maxCount):
+		term@cons#(body) -> cons#(body')
+		where not(!cons => "")		
+		with
+		   body' := <random-generate-referral-body(|identifier,path,rec,count,maxCount)> term
+	*/	
+	random-generate-referral(|identifier,path,rec,count,maxCount):
+		cons#(body) -> cons#(body')
+		where not(!cons => "")
+		with
+			numberedBody := <numberItems> body
+		;	body' := <map(random-generate-referral-body-aux(|identifier, cons,path,rec,count,maxCount))> numberedBody
+
+	random-generate-referral-body-aux(|identifier,cons,path,rec,count,maxCount): 
+		<?(Wld(),i) <+ ?(NBLType(),i)> -> term
+		with
+			<ConsCF> cons => (sort, rule)
+		;	<filter-prods;numberItems;filter(?(_,i))> rule => [(toWrite,_) | _]
+		;	allRejections := <get-and-distribute-rejections> (rule,sort,<ItemCount>)
+		;	<numberItems;filter(?(_,i))> allRejections => [(rejections,_) | _]
+		;	term := <write-rule(|path,rec, count, maxCount, rejections)> toWrite
+
+	random-generate-referral-body-aux(|identifier,cons,path,rec,count,maxCount): 
+		(NBLRef(),_) -> identifier
+
+	random-generate-referral-body-aux(|identifier,cons,path,rec,count,maxCount): 
+		(string,_) -> string
+		where <is-string> string 
+
+	random-generate-referral-body-aux(|identifier,cons,path,rec,count,maxCount):
+		(term,_) -> term'
+		where not(<is-string> term <+ ?Wld() <+ ?NBLRef() <+ NBLType() )		
+		with		
+			term' := <random-generate-referral(|identifier,path,rec,count,maxCount)> term
+
+
+/**
+ * Rules for creating new names.
+ **/
+rules	
+
+	// Create a definition and queue it for injection later
+	inject-NBL-definition-creation(|path,rec, count, maxCount):
+		listOfReferrals -> result
+		with
+			<randomly-pick-a-scope-for-NBL-injection> listOfReferrals => (namespace,term,scope) 
+		// Generate namespace information
+		;	identifier := <write-rule(|path,rec, count, maxCount, [])> sort("Id")
+				//<generate-identifier-for-term(|path,rec, count, maxCount)> term
+		;	<write-ns> (namespace,scope,identifier)
+		;	result := <random-generate-referral(|identifier,path,rec,count,maxCount)> term
+
+		// Save injection information for later
+		;	<write-NBL-injection> (scope,namespace,identifier)
+
+	randomly-pick-a-scope-for-NBL-injection:
+		possibleReferral -> result
+		with
+			// Filter those in the non-injectable scope pool
+			poolToPickFrom := <create-pool-of-all-scopes;filter(not(non-injectable-scope))> possibleReferral ; <debug(!"pool-to-pick:")> poolToPickFrom
+		// Check that there are scopes available		
+		where not(!poolToPickFrom => [] ; <debug(!"No scopes for:  ")>possibleReferral)
+		// Randomly pick a namespace-term combination		
+		with
+			<randomly-pick-from-list> poolToPickFrom => (namespace,term,scopes)
+		// Randomly pick a scope
+		;	<randomly-pick-from-list> scopes => scope
+		;	result := (namespace,term,scope)
+
+	create-pool-of-all-scopes:
+		[(namespace,term)|xs] -> result
+		where scopes := <all-non-native-scopes> namespace ; not(!scopes => [])		
+		with
+			result := Cons((namespace,term,scopes),<create-pool-of-all-scopes> xs)
+
+	create-pool-of-all-scopes:
+		[(namespace,term)|xs] -> result
+		where scopes := <all-non-native-scopes> namespace ; !scopes => []	
+		with
+			result := <create-pool-of-all-scopes> xs
+
+	create-pool-of-all-scopes:
+		[] -> Nil()
+
+	non-injectable-scope=
+		?(namespace,_,[scope])	
+	;	key:= <Scope2Key> scope 
+	;	<NonInjectable> (key,namespace)
+	;	<debug(!"Non injectable:")> scope
+write-NBL-injection=
+		?(scope,namespace,identifier)
+	;	rules( NBLInjection :  (scope,namespace,identifier) )
+
+	generate-identifier-for-term(|path,rec, count, maxCount):
+		t@cons#(body) -> identifier
+		where not(<is-string> t)		
+		with
+			<ConsCF> cons => (sort, rule)
+		// get sort to generate		
+		;	<numberItems;filter(?(NBLRef(),_))> body => [(_,n)|_]
+		// filter rules to only contain sorts		
+		;	<filter-prods> rule
+		// number it and fetch the corresponding nth term
+		; 	numberItems 
+		;	filter(?(_,n)) => [(toWrite,_)|_]
+		;	allRejections := <get-and-distribute-rejections> (rule,sort,<ItemCount>)
+		;	<numberItems;filter(?(_,n))> allRejections => [(rejections,_) | _]
+		;	identifier := <write-rule(|path,rec, count, maxCount, rejections)> toWrite
+
+	inject-NBL-definitions(|ast):
+		[(scope,namespace,identifier)|xs] -> ast''
+		with
+			ast' := <read-and-search-tree(|scope,namespace,identifier)> ast
+		;	ast'' := <inject-NBL-definitions(|ast')> xs
+
+	inject-NBL-definitions(|ast):
+		[] -> ast
+
+	read-and-search-tree(|scope,namespace,identifier):
+		term@cons#(body){scope} -> term'
+		where not(<is-string> term) ; not(<is-list> term)
+		with
+		{|CurrentScope:
+			<update-scopes> term		
+		;	term' := <inject-NBL-definition(|scope,namespace,identifier)> term
+		|}	
+
+	read-and-search-tree(|scope,namespace,identifier):
+		term@cons#(body) -> term'
+		where not(<is-string> term) ; not(<is-list> term) ; not(<has-annos> term)
+		with
+			term' := cons#(<map(read-and-search-tree(|scope,namespace,identifier))>body)
+
+	read-and-search-tree(|scope,namespace,identifier):
+		term@cons#(body){anno} -> cons#(body'){anno}
+		where not(<is-string> term) ; not(<is-list> term)
+		with
+		{|CurrentScope:
+			<update-scopes> term		
+		;	body' := <map(read-and-search-tree(|scope,namespace,identifier))> body
+		|}				
+
+	read-and-search-tree(|scope,namespace,identifier):
+		s -> s
+		where <is-string> s
+
+	read-and-search-tree(|scope,namespace,identifier):
+		list -> list'
+		where <is-list> list
+		with
+			list' := <map(read-and-search-tree(|scope,namespace,identifier))> list
+
+	update-scopes:
+		term{scopeAnno} -> term{scopeAnno}
+		where !term => cons#(body)		
+		where <ConsCF> cons => (_,rule) 
+		where
+			key := <create-key> cons#(<filter-prods>rule)
+		;	scopes := <bagof-NBLKey2Scope;concat> key
+		;	not(!scopes => [])  
+		with 
+			<nub;map({namespace: ?namespace; <write-current-scope> (namespace,scopeAnno,key)})> scopes
+	
+	update-scopes:
+		term -> term
+		where not(<has-annos> term)
+ 	
+	inject-NBL-definition(|scope,namespace,identifier):
+		term{scope} -> term'{scope} 
+		with
+			// Scoping term found, choose which alternative to inject
+			// and transform term
+			alternative := <randomly-pick-alternative(|namespace)> term
+
+	//;	if !alternatives => [] then <debug(!"No injections for: ")> namespace ; <debug(!"at scope: ")> scope ; <debug(!"cons: ")> cons end
+
+
+		;	<debug(!"alternative3: ")> alternative
+		;	!alternative => (generation@(_,_,_,stayOnPath,_),injectionPath)
+		; 	toInject := <build-alternative(|identifier,stayOnPath)> generation	
+		;	<debug(!"toInject: ")> toInject ; <debug(!"alternative: ")> alternative
+			; <write-to-string;debug(!"injectingInto: ")> term
+		;	term' := <inject-alternative(|injectionPath,toInject)> term	
+
+
+
+	inject-alternative(|injectionPath,toInject):
+		list -> list'
+		where !injectionPath => []
+		where 	if not(<is-list> list) then 
+					<debug(!"Trying to inject into a non-list: ")> list 
+				end
+		where <is-list> list
+		with
+			list' := Cons(toInject,list)
+
+	inject-alternative(|injectionPath,toInject):
+		cons#(body) -> cons#(body')
+		where not(!injectionPath => [])
+		with
+			!injectionPath => [InjectGoTo(i)|restInjectionPath]
+		;	numberedBody := <numberItems> body
+		;	body':= <map(inject-alternative-aux(|restInjectionPath,toInject,i))> numberedBody		
+		
+	inject-alternative-aux(|injectionPath,toInject,i):
+		(term,i) -> term'
+		with
+			term' := <inject-alternative(|injectionPath,toInject)> term
+
+	inject-alternative-aux(|injectionPath,toInject,i):
+		(term,j) -> term
+		where not(!i=>j)
+
+/*	inject-alternative-i(|i, toInject):
+		[list|xs] -> result
+		where <write-to-string;debug(!"iiiiiiiiiiiii1: ")> i
+		where <eq> (i,0) 
+			; if not(<is-list> list) then 
+				<debug(!"toInject2:")> list 
+			end 
+			; <is-list> list  
+		with 
+			if <is-list> toInject then
+				result := Cons(<conc>(toInject,list),xs)
+			else
+				result := Cons(<conc>([toInject],list),xs)
+			end
+						
+	inject-alternative-i(|i, toInject):
+		[x|xs] -> result
+where <write-to-string;debug(!"iiiiiiiiiiiii2: ")> i
+		where <gt> (i,0)
+		with
+			result := Cons(x,<inject-alternative-i(|<dec> i, toInject)> xs) */
+	
+	build-alternative(|identifier,stayOnPath):
+		(_,_,i,[DefineHere(term)],_) -> term'
+		where <debug(!"building defineHere:")>term
+		with
+		{| CurrentScope:		
+			!term => cons#(body) ; debug(!"ba1:") 
+		;	<ConsCF> cons => (sort,rule) ; debug(!"ba2:")
+		;	scopeAnno := <update-NBL-scope<+!""> (sort, rule) ; debug(!"ba3:") 
+		;	allRejections := <get-and-distribute-rejections> (rule,sort,<length> body) ; debug(!"ba4:")
+		;	body_rule_rej := <zip> (<zip> (body,<filter-prods> rule),allRejections)
+ ; debug(!"ba5:")		
+		;	body' := <map(build-definition-body(|identifier))> body_rule_rej
+; debug(!"ba6:")
+		;	term' := <construct-result(|cons,body')> scopeAnno
+; debug(!"ba7:")
+		|}
+
+	construct-result(|cons,body):
+		"" -> cons#(body)
+
+	construct-result(|cons,body):
+		scopeAnno -> cons#(body){scopeAnno}
+		where not(!scopeAnno=>"")
+
+
+	build-definition-body(|identifier):
+		((term,_),_) -> term
+		where not(!term => NBLRef())
+		where not(!term => NBLType())
+		where not(!term => Wld())
+
+	build-definition-body(|identifier):
+		((NBLRef(),_),_) -> identifier
+
+	build-definition-body(|identifier):
+		<?((NBLType(),toWrite),rejections) <+ ?((Wld(),toWrite),rejections)> -> term
+		with
+			term := <write-rule(|[],0,0,<subti> (<MaxCount>,<ConsCount>),rejections)> toWrite 
+
+	build-alternative(|identifier,stayOnPath):
+		(rule,sort,i,path,defineTermKey) -> term'
+		where not(!path => [DefineHere(term)])		
+		with	
+			numberedRule := <filter-prods;numberItems> rule
+		;	allRejections := <get-and-distribute-rejections> (rule,sort,<ItemCount>)
+		;	alternativeBody := <zip> (numberedRule,allRejections)
+		;	if cons:= <CFCons> (sort,rule) 
+				<+ <get-SpecialASTTerm-cons(|rule,allRejections)> (sort,rule) => (cons,processedBody) 				then
+				scopeAnno := <update-NBL-scope<+!""> (sort, rule)
+			;	if !processedBody then
+					body := <map(build-alternative-body(|i,rule,sort,stayOnPath,defineTermKey,identifier))> processedBody
+				else
+					body := <map(build-alternative-body(|i,rule,sort,stayOnPath,defineTermKey,identifier))> alternativeBody			
+				end
+			;	if !scopeAnno => "" then
+					term' := cons#(body)
+				else
+					term' := cons#(body){scopeAnno}
+				end
+			else
+				term'' := <map(build-alternative-body(|i,rule,sort,stayOnPath,defineTermKey,identifier))> alternativeBody
+			;	term' := <try(concat)> term''		
+			end		
+
+			
+	
+	build-alternative-body(|i,previousRule,previousSort,pathCheck,defineTermKey,identifier):
+		((current,i),rejections) -> term
+		with
+			<oncetd(recognize-sort ; ?sort)> current	
+		;	!pathCheck => [sort|pathCheck']
+	  	;	list_of_alt_bodys := <bagof-DefineParentSorts;filter(?(_,sort,_,pathCheck',_))> defineTermKey 
+		; 	if !list_of_alt_bodys => [] then 
+				<debug(!"current with no alt bodys: ")> current ; <debug(!"sort that goes with: ")> sort ; <debug(!"path: ")> pathCheck
+			end	
+		; 	alternative := <randomly-pick-from-list> list_of_alt_bodys
+		;	<build-alternative(|identifier,pathCheck')> alternative
+		;	?term'
+		;	if <oncetd(is-injectable-sort)> current then
+				if <gt> (<mod> (<next-random;abs>,100),50) then
+					term := <conc> ([term'],<write-rule(|[],0,0,<subti> (<MaxCount>,<ConsCount>),rejections)> current)
+				else
+					term := [term']
+				end
+			else
+				term := term'		
+			end		
+
+	build-alternative-body(|i,r,s,p,d,identifier):
+		((current,j),rejections) -> term
+		where not(!i=>j)
+		with
+			term := <write-rule(|[],0,0,<subti> (<MaxCount>,<ConsCount>),rejections)> current
+
+
+ 	randomly-pick-alternative(|namespace)=
+		?cons#(body) ; debug(!"a1")
+	;	numberedBody := <numberItems> body ; <debug(!"a2:")> numberedBody
+	;	alternatives := <filter(get-injections-per-iter(|cons,namespace,[]));concat> numberedBody
+	;	<debug(!"alternatives:")> alternatives ; <debug(!"namespace:")> namespace ; <debug(!"cons:")> cons
+	;	<randomly-pick-from-list> alternatives
+
+	get-injections-per-iter(|cons,namespace,injectPath):
+		(list,i) -> result
+		where <is-list> list
+		where sort := <is-itersort-in-SDF> (cons,i)
+		with
+			injectPath' := <conc> (injectPath, [InjectGoTo(i)])
+		;	alternatives := <is-injectable-sort-for(|namespace,cons,i)> sort
+		;	if !alternatives => [] then 
+				result := []
+			else
+				result := [(<randomly-pick-from-list> alternatives, injectPath')]
+			end
+
+/*			newInjectPath := <conc> (injectPath,[InjectGoTo(i)])
+		;	otherAlternatives := 
+				<filter({t: ?t ; !(t,-1) ; get-injections-per-iter(|cons,namespace,newInjectPath)});concat> list
+		;	thisIteralternatives := <is-injectable-sort-for(|namespace,cons,i)> sort
+		;	if not(!thisIteralternatives => []) then
+				//Pick one for this level
+				alternative := <randomly-pick-from-list> thisIteralternatives
+			;	alternativeWithPath := (alternative,<conc>(newInjectPath,[InjectHere()])) 
+			;	result := <conc> ([alternativeWithPath],otherAlternatives)
+			else
+				result := otherAlternatives
+			end*/
+
+
+	get-injections-per-iter(|not_used,namespace,injectPath):
+		(term,i) -> alternatives
+		where <write-to-string;debug(!"B:")> term
+		where not(<is-string> term) ; not(<is-list> term) ; not(<is-tuple> term)
+		where not(<term-scopes-namespace(|namespace)> term)
+		where !term => cons#(body)
+		where if !cons => "InitAction" then <debug(!"ia2:")> (term,namespace,injectPath) end
+		with
+			if <geq> (i,0) then
+				injectPath' := <conc> (injectPath, [InjectGoTo(i)])
+			else
+				injectPath' := injectPath
+			end
+		;	numberedBody := <numberItems> body
+		;	alternatives :=
+				<filter(get-injections-per-iter(|cons,namespace,injectPath'));concat> numberedBody	
+	
+//	get-injections-per-iter(|not_used,namespace,injectPath):
+//		term -> result
+//		where <write-to-string;debug(!"C:")> term
+//		where not(<is-string> term) ; not (<is-list> term) ; not(<is-tuple> term)
+//		with result := <get-injections-per-iter(|not_used,namespace,injectPath)> (term,-1)
+
+	// gets injection alternatives for this constructor
+	get-injection-alternatives(|not_used,namespace):
+		<?(term@cons#(body),_) <+ ?term@cons#(body)> -> alternatives
+		where not(<is-string> term) ; not(<is-list> term) ; not(<is-tuple> term)
+		where not(<term-scopes-namespace(|namespace)> term)		
+		with  
+			numberedBody := <numberItems> body  
+		;	alternatives := <filter(get-injection-alternatives(|cons,namespace));try(concat)> numberedBody
+		
+	// gets injection alternatives for this constructor
+	get-injection-alternatives(|cons,namespace):
+		(list,i) -> alternatives
+		where <is-list> list
+		where 
+			sort := <is-itersort-in-SDF> (cons,i) 
+		;	if not(alternatives := <is-injectable-sort-for(|namespace,cons,i)> sort) then
+				alternatives := <filter(get-injection-alternatives(|cons,namespace));try(concat)> list
+			end
+
+	is-injectable-sort-for(|namespace,cons,i)=
+		?sort
+	// Get all define constructors
+	;	defineCons := 
+			<	bagof-NBLNamespace2DefKey 
+			; 	filter(not(<NonInjectable>(<id>,namespace)))
+			> namespace 
+	;	<filter(check-if-parent-sorts-coincede(|sort,cons,i));try(concat)> defineCons
+
+	check-if-parent-sorts-coincede(|sort,cons,i):
+		t@(cons',n) -> result 
+		where
+			parents := <bagof-DefineParentSorts> t 
+		;	result := <filter(?(_,sort,_,_,_))> parents
+
+
+	is-itersort-in-SDF:
+		(cons,i) -> sort 
+		where
+			<ConsCF> cons => (_,rule)
+		;	numberedRule := <filter-prods;numberItems> rule
+		;	<filter(?(_,i))> numberedRule => [(ith,_)|_]
+		// is-injectable or has no constructor between this sort and injectable sort
+		;	<is-or-leads-to-injectable-sort;recognize-sort> ith => sort
+
+	SDF-sort:
+		(cons, children, i) -> sort
+		with
+			<bagof-ConsCF> cons
+		;	filter({rule:
+				?(_,rule) 
+			; 	<eq> (<filter-prods;length> rule,children) 
+			; 	<filter-prods>rule})
+		;	randomly-pick-from-list
+		;	numberItems ; filter(?(_,i)) => [(s,_)] ;debug(!"before recog:")
+		;	<oncetd(recognize-sort)> s 
+		; 	?sort
+
+	is-or-leads-to-injectable-sort=
+		is-injectable-sort <+
+		has-productions-with-no-constructors
+
+	has-productions-with-no-constructors=
+		not(?alt(_,_)) ; sort:= <recognize-sort>
+	;	<bagof-CFSorts> sort 
+	;	filter(not(<CFCons> (sort,<id>))) 
+	;	not(?[]) 
+	; 	filter({injectable: filter-prods ; ?[injectable] ; <is-or-leads-to-injectable-sort> injectable}) 
+	;	not(?[]) 
+	;	Hd 
+
+	is-injectable-sort:
+		opt(o) -> sort
+		where sort := <is-injectable-sort> o
+	is-injectable-sort:
+		iter(sort) -> sort
+	is-injectable-sort:
+		iter-sep(sort,_) -> sort
+	is-injectable-sort:
+		iter-star(sort) -> sort
+	is-injectable-sort:
+		iter-star-sep(sort,_) -> sort
+
+	term-scopes-namespace(|namespace)=
+		create-key
+	;	NBLKey2Scope
+	;	oncetd(?namespace) 
+ 
+	get-parent-SDF-sorts(|iset):
+		sort -> result
+		with
+			sortsAndRules := <bagof-InverseProd> sort	
+		;	listOfSorts := <map(unique-add-iset-elem(|iset));concat> sortsAndRules
+		;	<map(get-parent-SDF-sorts(|iset))> listOfSorts
+		;	result := <iset-elements> iset

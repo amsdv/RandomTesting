@@ -1,0 +1,236 @@
+module read-nbl
+
+imports
+	nbl
+
+rules
+
+	// Read Name Binding Language definition file
+	// Store information required for NBL adherence algorithm
+	read-NBL=
+		tbl := <ReadFromFile> $[include/NameDefinitionLanguage.tbl]	
+	;	nbl := <parse-file(|tbl)> $[include/WebDSL/names.nd]
+	;	!nbl => Naming(mod_name,imports,namespaces,naming_rules)
+	;	<alltd(read-ND-Rule)> naming_rules
+	; 	generate-native
+	;	!None()
+
+	// Reads a single Name Definition Binding rule
+	read-ND-Rule:
+		d@ND-Rule(term, naming_part, where_clause) -> d
+		with
+			<map(read-naming(|term))> naming_part
+	
+	// Reads a Name Definition Binding Define	
+	read-naming(|term)=
+		?ND-Def(unique, NsRef(namespace), NSTerm, typeTerm, _)
+	;	if !NSTerm => NoAnnoList(Str(str)) then
+			<write-native> (namespace,<un-double-quote> str)
+		else
+			!term => NoAnnoList(Op(cons,body)) 
+		;	body' := <nbl-rename-body(|NSTerm,typeTerm)> body 	
+		;	<write-define> (namespace, unique, cons#(body'))
+		end
+
+	// Reads a Name Definition Binding Refers
+	read-naming(|term)=
+		?ND-Ref(NsRef(namespace), NSTerm, typeTerm, _)
+	;	if !NSTerm => NoAnnoList(Str(str)) then
+			<write-native> (namespace, <un-double-quote> str)
+		else
+			!term => NoAnnoList(Op(cons,body))
+		;	body' := <nbl-rename-body(|NSTerm,typeTerm)> body
+		;	<write-refer> (namespace,cons#(body'))
+		end
+
+	// Reads a Name Definition Binding Scope
+	read-naming(|term)=
+		?ND-Scope(scopes)
+	;	!term => NoAnnoList(Op(cons,body))
+	;	key := <create-key> cons#(body) 
+	;	scopes' := <map({namespace: ?NsRef(namespace) ; !namespace})> scopes
+	;	rules( 	NBLKey2Scope :+ key -> scopes' )
+ 
+	// Reads a Name Binding Import (NOT USED)
+	read-naming(|term)=
+		?ND-Import(NsRef(importNamespace),NsRef(fromNamespace),NSTerm,_,_)
+	;	key := <create-key> term
+	;	import := (importNamespace, fromNamespace)
+	;	rules( NBLKey2Import :+ key -> import)
+
+	// For debugging purposes
+	read-naming(|term)=
+		//not(?ND-Def(_,_,_,_))
+		debug(!"missing this naming:") ; <debug(!"with this term: ")> term
+
+	// Writes Native Names
+	write-native=
+		?(namespace, value)
+	;	rules(NBLNative :+ namespace -> value)
+
+	// Writes a NBL refers to 
+	write-refer=
+		?(namespace,term)
+	;	key := <create-key> term
+	;	rules( 	NBLKey2Refer :+ key -> (namespace,term)
+				NBLNamespace2RefKey :+ namespace -> key )	
+
+	// Writes a NBL define
+	write-define=
+		?(namespace,unique,term)
+	;	key :=	<create-key> term
+	;	rules( NBLKey2Define :+ key -> (namespace,unique,term)
+			   NBLNamespace2DefKey :+ namespace -> key )
+	; 	if !term => cons#(body) then
+			<ConsCF> cons => (sort,_)
+		// Save itself as its own parent ?(key, sort, i, path)
+		;	<write-define-parent-sorts> (key, [], sort, -1, [DefineHere(term)])
+		// Get all other parents
+		;	<get-and-save-parent-sorts(|namespace,key,[DefineHere(term)])> sort
+		else
+			<debug(!"Invalid Define Term: ")> term
+		end
+
+	//	Finds possible parents sorts
+	get-and-save-parent-sorts(|namespace,defineTermKey,path)=		
+		?sort
+		;	if !path=>[DefineHere(term)] then
+				inverses' := <bagof-InverseProd> sort 
+			;	!term => cons#(body) 
+			;	<ConsCF> cons => (defineSort,defineProd)
+			;	inverses := <filter(parent-prods-for-define(|defineSort,defineProd))> inverses'
+ 				; if !inverses => [] then <debug(!"not good: ")> DefineHere(term) end
+			else
+				inverses := <bagof-InverseProd> sort
+			end
+		;	if not(!inverses => []) then 
+				parents:= <map(save-parent-sort(|namespace,defineTermKey,sort,path));concat;nub> inverses 
+			;	<map(get-and-save-parent-sorts-rec(|namespace,defineTermKey,path))> parents
+			end
+		
+	
+	parent-prods-for-define(|defineSort,defineRule)=
+		?(sort,prod)
+		// for now just check if the defineSort and defineRule are not in the rejection
+	;	allRejections := <get-and-distribute-rejections> (prod, sort,<filter-prods;length> prod)
+	;	<all(<filter(?(defineRule,defineSort))> <id> =>[])> allRejections
+	;	!(sort,prod)	
+
+	
+
+	get-and-save-parent-sorts-rec(|namespace,defineTermKey,path)=
+		?sort
+	;	path' := Cons(sort,path)
+	;	<get-and-save-parent-sorts(|namespace,defineTermKey,path')> sort 
+
+	save-parent-sort(|namespace,defineTermKey,childSort,path):
+		(sort,rule) -> []
+		where not(<filter(?sort)> path => [])
+
+	save-parent-sort(|namespace,defineTermKey,childSort,path):
+		(sort,rule) -> []
+		where <filter(?sort)> path => []
+		where 
+			filteredProd := <filter-prods> rule
+		;	cons := <CFCons> (sort,rule)  
+		;	<term-scopes-namespace(|namespace)> cons#(filteredProd)
+
+	save-parent-sort(|namespace,defineTermKey,childSort,path):
+		(sort,rule) -> result
+		where <filter(?sort)> path => []
+		where
+			filteredProd := <filter-prods> rule
+		; 	if cons := <CFCons> (sort,rule) then 
+				not(<term-scopes-namespace(|namespace)> cons#(filteredProd))
+			end
+		with
+			numberedRule := <map(extract-sorts);try(concat);numberItems> filteredProd
+		;	<filter(?(childSort,_))> numberedRule => [(_,i)|_]
+		;	<write-define-parent-sorts> (defineTermKey,rule,sort,i,path)
+		;	result := [sort]
+
+	write-define-parent-sorts=
+		?(key, rule, sort, i, path)
+	;	rules(DefineParentSorts :+ key -> (rule,sort,i,path,key)) 
+
+	unique-add-iset-elem(|iset):
+		(elem,_) -> [elem]
+		where 
+			<not(iset-contains(|elem))> iset
+		;	<iset-add(|elem)> iset
+
+	unique-add-iset-elem(|iset):
+		(elem,_) -> []
+		where <iset-contains(|elem)> iset
+
+	generate-native=
+		nativeAnnotation := PreviousScope("#native")
+	;	all-keys-NBLNative;map({namespace: ?namespace ; <NBLNative> namespace; <write-ns> (namespace,nativeAnnotation, <id>)})
+
+	write-ns=
+		?(namespace, anno, value)
+	;	rules(Namespace :+ (namespace,anno) -> value)
+
+	 
+	nbl-rename-body(|refTerm,typeTerm)=
+		map(
+			nbl-rename-ref(|refTerm) 	<+
+			nbl-rename-type(|typeTerm)	<+
+			nbl-rename-unused-vars		<+
+			nbl-rename-pattern			<+
+			id
+		)
+
+	nbl-rename-pattern:
+		Str(string) -> 	string'
+		with 
+			string' := <un-double-quote> string 
+		
+	nbl-rename-pattern:
+		Op(cons,body) -> cons#(body')
+		with
+			body' := <nbl-rename-pattern> body
+	
+	nbl-rename-pattern:
+		NoAnnoList(pattern) -> result
+		with
+			result := <nbl-rename-pattern> pattern
+
+	nbl-rename-pattern:
+		List(list) -> list'
+		with
+			list' := <nbl-rename-pattern> list
+
+	nbl-rename-pattern:
+		string -> string
+		where <is-string> string
+
+	nbl-rename-pattern:
+		list -> list'
+		where <is-list> list
+		with
+			list':= <map(nbl-rename-pattern)> list
+
+	nbl-rename-unused-vars:
+		Var(_) -> Wld()
+
+	nbl-rename-ref(|refTerm):
+		 refTerm -> NBLRef()
+
+	nbl-rename-type(|typeTerm):
+		typeVar -> NBLType()
+		where		
+			!typeTerm => TypeBinding(typeVar)		
+		
+	create-key:
+		t@cons#(body) -> (cons,i)
+		where not(<is-string>t)
+		with
+			<numberItems> body
+		;	i := <ItemCount>
+
+	all-non-native-scopes:
+		namespace -> scopes
+		with
+			scopes := <bagof-CurrentScope;filter(not(?"#native"))> namespace
+	

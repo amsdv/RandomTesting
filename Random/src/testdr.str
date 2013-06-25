@@ -1,0 +1,15 @@
+module testdr
+
+imports
+  libstratego-lib
+  libstratego-gpp
+  libstratego-aterm
+  libstratego-sglr
+  libstratego-sdf
+  libstratego-xtc  
+
+rules
+
+write-Rule1(|key) = rules( Rule1 :+= key ) 
+
+	main = !"ZoekDit"#([["a","b"],"1"])

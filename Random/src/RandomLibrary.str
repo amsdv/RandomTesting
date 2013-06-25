@@ -1,0 +1,8 @@
+module RandomLibrary
+rules
+	external generate-string-from-reg(|format)
+	external write-log(|filePath)
+	external run(|strategyName, jarURL, testFolder)
+	external run-shrink(|strategyName,jarURL)
+	external remove-folders(|listOfFolders)
+	external get-all-files-with-extension(|listOfFolders)

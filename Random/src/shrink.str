@@ -1,0 +1,259 @@
+module shrink
+
+imports
+  libstratego-lib
+  libstratego-gpp
+  libstratego-aterm
+  libstratego-sglr
+  libstratego-sdf
+  libstratego-xtc
+  read-sdf
+  random_test
+
+rules
+
+	shrink-test=
+		<debug> "Shrinking Test"
+	;	rules(Language := "WebDSL")	
+	;	read-language 	
+	;	(ast,errorMessage,stackTrace) := <shrink-get-input>
+	;	rules( ShrinkError := (errorMessage,stackTrace) )	
+	; 	ast':= <shrink-find-sorts(|None())> ast
+	;	<shrink-program> (ast', <bagof-ShrinkSort> "iter-star", <bagof-ShrinkSort> "iter")
+		
+	shrink-program= 
+		?(ast,iterS*,iter*)
+	;	<while({ast',iter: ?(ast',iter) ; not(!iter => []);!(ast',iter)},shrink-iter)> (ast, <reverse> iter*)
+	;	? (ast'',_)
+	;	<while({ast',iterS: ?(ast',iterS) ; <debug> "hier1" ; not(!iterS => []);!(ast',iterS)},try-shrinking)> (ast'',<reverse> iterS*)
+
+//,<iset-empty> i_iter
+	try-shrinking=
+		?(ast,iterS)
+	;	<shrink-iter-stars(|iterS)> ast 
+
+	shrink-iter=
+		?(ast,iter) ;<debug(!"length: ")> <length> iter
+	;	not(!iter => [])
+	;	elem := <Hd> iter ;<debug> elem
+	; 	if <is-string> elem then
+			anno := elem
+		;	i := 0
+		else
+			!elem => (anno,i)		
+		end
+	;	if (ast',i') := <remove-next-iter(|anno,i)> ast then <debug> "D1";
+			iter' := <one( ?elem  ; !(anno,i'))> iter			
+		else <debug> "D2";
+			iter' := <filter(not(?elem))> iter
+		;	ast' := ast
+		end 
+	;	!(ast',iter')
+
+
+	run-and-match-error=
+		
+		?ast ; <debug> "rame1"
+	;	file  := $[[<PROJECTPATH>]/WebDSLShrink/toShrink.app] ;<debug> "rame2"
+	;	ppProgram := <concat-strings> [<pp-program> ast,"\n\r"] ; <debug> "rame3"
+	;	<write-log(|file)> ppProgram ; <debug> "rame4"
+
+;	tbl := <ReadFromFile> $[include/WebDSL/WebDSL.tbl] ; <debug> "rame5"
+//;	if not (<parse-file(|tbl)> file) then
+//		<exit> -1
+//	end  ;<debug> "rame6"
+	;	strategy := "webdslc-main" ; <debug> "rame7"
+	;	jarURL := $[file:/home/andre/Documents/Stratego/bin/WebDSL/bin/webdsl.jar]
+; <debug> "rame8"
+	;	input := ["toShrink", "-i", $[../Tests/WebDSLShrink/toShrink.app] , "--verbose" , "2", "--servlet"]
+
+	// remove cache first
+	;	shrinkPath := $[/home/andre/Documents/Stratego/Random/Tests/WebDSLShrink]	
+	;	remove-folders(|[$[[shrinkPath]/.webdsl-parsecache]])
+	
+	;	<run-shrink(|strategy,jarURL)> input => result 
+	;	<debug(!"result:")> result
+	;	if not( <eq> (<ShrinkError> , result)) then
+			<debug> "Did not match";
+			fail	
+		end
+
+	shrink-iter-stars(|iterS)=
+		?ast ;<debug(!"length: ")> <length> iterS
+	;	not(!iterS => [])
+	;	elem := <Hd> iterS
+	; 	if <is-string> elem then
+				<debug> "A";
+			// First attempt, make the list empty
+			//	this will fail if the list is no longer in the ast
+			if <oncetd(shrink-make-empty(|elem))> ast => ast'' then
+				<debug> "B0"; 
+				// Otherwise run it and match error
+				// if this succeeds, remove the element and continue
+				if <run-and-match-error> ast'' then  <debug> "B1";
+					iterS' := <filter(not(?elem))> iterS
+				;	ast' := ast''	
+				else <debug(!"B2")> elem;
+					// Otherwise change the element to a full list 
+					iterS' := <one(?elem ; !(elem,0))> iterS
+				;	ast' := ast
+					// and write back old file for consistency	
+				;	file  := $[[<PROJECTPATH>]/WebDSLShrink/toShrink.app]			
+				;	<concat-strings;write-log(|file)> [<pp-program> ast',"\n\r"]
+				end		
+			else <debug> "C0";
+			//  in this case, remove the element from the iset and continue
+				iterS' := <filter(not(?elem))> iterS
+			;	ast' := ast
+			end
+		else <debug> "D0";
+			// keep removing one
+			!elem => (anno,i)
+		// If the ith element can be removed then we change the element in the iset
+		// otherwise we remove it
+		;	if (ast',i') := <remove-next(|anno,i)> ast then <debug> "D1";
+				iterS' := <one(?(anno,i)  ; !(anno,i'))> iterS			
+			else <debug> "D2";
+				iterS' := <filter(not(?elem))> iterS
+			;	ast' := ast
+			end 
+		end
+	;	!(ast',iterS')
+
+	remove-next-iter(|anno,i)=
+		?ast ; <debug> "okie0"
+	;	ast':= <oncetd(remove-next-iter-aux(|anno,i))> ast
+	;	if <run-and-match-error> ast' then
+			!(ast',i)
+		else
+			!(ast, <inc> i)
+		;	file  := $[[<PROJECTPATH>]/WebDSLShrink/toShrink.app]			
+		;	<concat-strings;write-log(|file)> [<pp-program> ast,"\n\r"]				
+		end
+
+
+	remove-next-iter-aux(|anno,i):
+		list{anno} -> list'{anno}
+		where <is-list> list ;<debug(!"list:")> list
+		where <geq> (<length> list, 2) ; <debug> "meh?!?" // Must have at least 2 items, otherwise cant remove 1
+		where not(<geq> (i,<length> list))
+		with			<debug> "hier?!?!?!?!";
+			numberedList := <numberItems> list
+		;	list' := <filter({v,n: ?(v,n) ; not(<eq> (n,i)) ; !v})> numberedList
+	
+	remove-next(|anno,i)=
+		?ast
+	;	ast' := <oncetd(remove-next-aux(|anno,i))> ast
+	;	if <run-and-match-error> ast' then
+			!(ast',i)
+		else
+			!(ast,<inc> i)
+		;	file  := $[[<PROJECTPATH>]/WebDSLShrink/toShrink.app]			
+		;	<concat-strings;write-log(|file)> [<pp-program> ast,"\n\r"]				
+		end
+
+	remove-next-aux(|anno,i):
+		list{anno} -> list'{anno}
+		where <is-list> list
+		where
+			not(<geq> (i,<length> list))			
+		;	numberedList := <numberItems> list
+		;	list' := <filter({v,n: ?(v,n) ; not(<eq> (n,i)) ; !v})> numberedList
+		
+	iset-empty=
+		?i
+	;	<iset-elements> i => []
+
+	shrink-make-empty(|anno):
+		list{anno} -> []
+		where <is-list> list
+
+	
+//;	all-keys-ShrinkSort
+//	;	map({type: ?type;bagof-ShrinkSort;debug(!$[type: [type]])})
+
+	shrink-get-input= 
+		file  := $[[<PROJECTPATH>]/Tests/WebDSLShrink/toShrink.app]
+	;	tbl := <ReadFromFile> $[include/WebDSL/WebDSL.tbl]
+	;	parsedFile := <parse-file(|tbl)> file
+	;	strategy := "webdslc-main"
+	;	jarURL := $[file:/home/andre/Documents/Stratego/bin/WebDSL/bin/webdsl.jar]
+	;	input := ["toShrink", "-i", $[../Tests/WebDSLShrink/toShrink.app] , "--verbose" , "2", "--servlet"]
+	;	<run-shrink(|strategy,jarURL)> input => (errorMessage,stackTrace)
+	;	!(parsedFile, errorMessage,stackTrace) 
+
+	shrink-find-sorts(|notUsed):
+		<?(term@cons#(body),i) <+ ?term@cons#(body)>  -> cons#(body')
+		where not(<is-list> term)
+		where not(<is-string> term)
+		where not(<is-tuple> term)
+		where not(<is-int> term)		
+		with
+			numberedBody := <numberItems> body
+		;	body' := <map(shrink-find-sorts(|cons))> numberedBody
+
+	shrink-find-sorts(|n):
+		<?(string,_)<+ ?string> -> string
+		where <is-string> string
+
+	shrink-find-sorts(|n):
+		<?(int,_) <+ ?int> -> int
+		where <is-int> int
+	
+	shrink-find-sorts(|cons):
+		(list,i) -> list'{anno}
+		where <is-list> list
+		with
+			if not(<ConsCF> cons => (_,rule)) then 
+				<CFSorts> cons => rule
+			end
+		;	numberedRule := <filter-prods;numberItems> rule
+		;	<filter(?(_,i))> numberedRule => [(ith,_)|_]
+		;	anno:= <is-or-leads-to-shrinkable-sort> ith
+		;	list' := <map(shrink-find-sorts(|cons))> list
+
+	shrink-find-sorts(|cons):
+		(Some(s),i) -> Some(s'){anno}
+		with
+			if not(<ConsCF> cons => (_,rule)) then 
+				<CFSorts> cons => rule
+			end
+		;	numberedRule := <filter-prods;numberItems> rule
+		;	<filter(?(_,i))> numberedRule => [(ith,_)|_]
+		;	anno:= <is-or-leads-to-shrinkable-sort> ith
+		;	s' := <shrink-find-sorts(|cons)> s
+
+	is-shrinkable-sort:
+		iter(_) -> anno
+		with
+			anno := <newname> "iter"
+		;	<write-shrink-sort> ("iter", anno)
+
+	is-shrinkable-sort:
+		iter-sep(_,_) -> anno
+		with
+			anno := <newname> "iter"
+		;	<write-shrink-sort> ("iter", anno)
+
+	is-shrinkable-sort:
+		iter-star(_) -> anno
+		with
+			anno := <newname> "iter-star"
+		;	<write-shrink-sort> ("iter-star", anno)
+
+	is-shrinkable-sort:
+		iter-star-sep(_,_) -> anno
+		with
+			anno := <newname> "iter-star"
+		;	<write-shrink-sort> ("iter-star", anno)
+
+	is-shrinkable-sort:
+		opt(_) -> anno
+		with
+			anno := <newname> "opt"
+		;	<write-shrink-sort> ("opt", anno)
+
+	is-or-leads-to-shrinkable-sort=
+		is-shrinkable-sort <+
+		has-productions-with-no-constructors
+

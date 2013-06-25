@@ -1,0 +1,513 @@
+module generate-program
+
+imports 
+	random_test
+	read-sdf
+	xeger
+	libstratego-lib
+	libstratego-gpp
+	libstratego-aterm
+	libstratego-sglr
+	libstratego-sdf
+	libstratego-xtc
+	include/SpoofaxLang
+
+
+
+rules
+
+	pick-a-random-terminal:
+		s -> result
+		with
+			result := <bagof-Terminals;randomly-pick-from-list> s 
+	
+	pre-generate-terminals(|number) =
+		terminals := <all-keys-LexSorts>
+	;	<nub;map(lex-to-dr(|number))> terminals 
+	 	
+
+	lex-to-dr(|number)=
+		?s
+	;	<write-lex-to-dr> 0 
+	;	while( not(<eq> (number,<lex-to-dr-Count>)),
+	    {x,terminal,newCount:
+			terminal := <generate-terminal> s
+		;	newCount := <addi> (<lex-to-dr-Count>,1)
+		;	rules( 	Terminals :+ s -> terminal)
+		;	<write-lex-to-dr> newCount
+		}
+		)
+
+	write-lex-to-dr=
+		?count
+	;	rules(lex-to-dr-Count:= count)
+    
+    pick-prod-lower-level:
+    	list -> result
+    	where not(!list => [])
+    	with
+    		lowestLevel := <map({l: ?(_,l); !l});list-min> list
+    	;	result := <filter(?(_,lowestLevel));map({p: ?(p,_);!p})> list
+    
+	pick-prod-lower-level:
+		[] -> []
+		with
+			<debug> "Bag of Terminal returned []"
+
+	// A production is prohibited, if it is a referral covered by NBL, 
+	// for which it has no current scopes
+	is-prohibited(|rejectDueToPriorities, sortString):
+		prod -> prod
+		where
+			refs := <get-NBL-referrals> (sortString,prod)
+		;	not(<nbl-current-definitions> refs => [])
+		; 	<not(randomly-pick-a-scope-for-NBL-injection)> refs
+
+	// A production is prohibited, if it contains a sort that is to be ignored
+	// Since if this is the case then the further generation of this production will yield an 		// empty set of valid solutions
+    is-prohibited(|rejectDueToPriorities, sortString):
+    	prod -> prod
+		where
+			not( <filter({s: oncetd(recognize-sort => s); <IgnoreSorts> s})> prod => [] )
+	
+	// This combination of production and sort will yield an "Ignored" sort
+	// These Ignored sorts are sorts/constructors that were chosen to be ignored by the user
+	is-prohibited(|rejectDueToPriorities, sortString):
+		prod -> prod
+		where
+			<CFCons;IgnoreSorts <+ LexCons;IgnoreSorts> (sortString, prod)
+	
+	// This production is rejected due to grammar priorities
+	is-prohibited(|rejectDueToPriorities, sortString):
+		prod -> prod
+		where
+			not(<filter({d: ?d ; !d=>(prod, sortString)})>  rejectDueToPriorities => [])
+     
+    check-priorities:
+    	(prodToWrite, sort) -> rejections
+    	with
+    		lRejections := <conc> (<bagof-Priority> (prodToWrite,sort,left()),<bagof-Priority> (prodToWrite,sort,assoc()))
+    	;	nRejections := <conc> (<bagof-Priority> (prodToWrite,sort,non-assoc()),<bagof-Priority> (prodToWrite,sort,">"))
+    	;	rRejections := <bagof-Priority> (prodToWrite,sort,right())
+    	; 	rejections := (lRejections,nRejections,rRejections)
+    
+    
+	distribute-rejections(|lPriorities, nPriorities, rPriorities):
+		(0,1) -> rejections
+		with
+			rejections := [<concat> [lPriorities,nPriorities,rPriorities]]
+	
+	distribute-rejections(|lPriorities, nPriorities, rPriorities):
+		(max,max) -> []
+			 
+	distribute-rejections(|lPriorities, nPriorities, rPriorities):
+		(0,max) -> rejections
+		with
+			currentRejections := <conc> (nPriorities, rPriorities)
+		;	rejections := <conc> ([currentRejections], 
+		 	<distribute-rejections(|lPriorities, nPriorities, rPriorities)> (1,max))		 
+	
+	distribute-rejections(|lPriorities, nPriorities, rPriorities):
+		(current, max) -> rejections
+		with
+			next := <addi> (current,1)
+		;	if !next => max then
+		 		currentRejections := <conc> (lPriorities, nPriorities)
+		 	else
+		 		currentRejections := nPriorities
+		 	end
+		;	rejections := <conc> ([currentRejections], 
+		 		<distribute-rejections(|lPriorities, nPriorities, rPriorities)> (next, max))
+	
+	generate-random-maxima(| maxCount )=
+		?n
+	;	list := <generate-random-percentages-rec> n
+	;	sum  := <addi> (<sum> list, 1)
+	;	newList := <map({i: ?i ; <divi> (<muli> (i,maxCount),sum) })> list
+	
+	generate-random-percentages-rec=
+		?n
+	;	if <gt> (n,0) then
+			!Cons(<mod>(<next-random;abs>,100), <addi;generate-random-percentages-rec> (n,-1))
+		else
+			!Nil()
+		end
+	    		
+	generate-program(|currentNode, path,rec, count, maxCount, rejectDueToPriorities):
+		_ -> result
+		with
+			debug(!"WeirdCrash1:");
+		{|CurrentScope:
+			allProds := 
+				<bagof-CFSorts;filter({p:
+					?p 
+				;	<not(is-prohibited(|rejectDueToPriorities,currentNode))> p })> currentNode
+			;debug(!"WeirdCrash2:")
+		;	thisRec := <filter(?currentNode);length> path	
+		;	if <gt> (thisRec, rec)  then
+				rec' := thisRec
+			else
+				rec' := rec
+			end
+			;debug(!"WeirdCrash3:")
+		;	if	or(<gt> (count, maxCount),<gt> (rec', <MaxRec>)) then
+		 		// We should try to avoid productions with sorts we have seen before
+		 		noRecProds := <bagof-TerminalPath;pick-prod-lower-level> currentNode	
+		 	;	if !noRecProds => [] then
+					<concat-strings;debug> ["EUH???:",<write-to-string> currentNode];
+		 	 		unNumberedProds := allProds
+		 	 	;	newRec := rec'
+		 	 	else
+		 	 		unNumberedProds := 
+		 	 			<filter({p:
+		 	 					?p
+		 	 				;	<not(is-prohibited(|rejectDueToPriorities, currentNode))> p 
+		 	 				})>  noRecProds
+		 	 	;	newRec := 0
+		 	 	end 	
+		 	else
+		 		unNumberedProds := allProds
+		 	;	newRec := rec'
+		 	end
+			;debug(!"WeirdCrash4:")	
+		;	path':= <conc> (path,[currentNode])
+			;debug(!"WeirdCrash5:")
+		// Check that we have alternatives
+		;	if !unNumberedProds => [] then
+			<concat-strings;debug> ["Filtering out of constructors yielded errors!!", " with recursion: ", <write-to-string> newRec, <write-to-string> currentNode]
+
+			end
+
+		// Hack to allow the use of ProdWeight even if not defined earlier 
+		;	rules( ProdWeight : "echt niet" -> 1 )
+		
+		// Build Weighted List
+		;	(weight_list, max_weight) := <build-weight-list> unNumberedProds
+		
+		// Choose an alternative
+		;	prodToWrite := <choose-alternative(|<mod;inc> (<next-random;abs>,max_weight))> weight_list
+		
+		// Update current count
+		;	newCount := <addi> (<ConsCount>,1)
+		; 	rules( ConsCount := newCount )
+		
+		// Update NBL-scope
+		;	scopeAnno := <update-NBL-scope<+!""> (currentNode, prodToWrite)		
+				;debug(!"WeirdCrash6:")
+		;	result'':= <help-strategy(|currentNode, prodToWrite, newCount, maxCount, path', newRec)> 
+						;debug(!"WeirdCrash7:")
+		;	if !scopeAnno => "" then
+				result := result''
+			else
+				result := result''{scopeAnno}
+			end
+
+						;debug(!"WeirdCrash8:")
+		;	if <create-key;NBLKey2Define> result => (namespace,unique,term) then
+				// The term defines a namespace so save it
+							debug(!"WeirdCrash9:") ;
+				valuesInScope := <get-values-from-current-scope> namespace
+							;debug(!"WeirdCrash10:")
+			;	(result',identifier) := <extract-or-replace-identifier(|term,unique,valuesInScope)> result 
+
+							;debug(!"WeirdCrash11:")
+			;	<write-ns> (namespace,<CurrentScope> namespace, identifier) 
+			else
+				result' := result
+			end
+		;	<try(update-cons-coverage)> result			
+		|}
+
+	help-strategy(|currentNode, prodToWrite, newCount, maxCount, path', newRec)=
+		if and( <gt> (<mod> (<next-random;abs>,100),<ChanceOfFailure>),
+				<get-NBL-referrals> (currentNode, prodToWrite) => referrals 
+					; not(!referrals => [])
+			)  then
+		// Check if there are existing definitions in the namespace
+		// if so, choose to either use an existing one or create a new one
+			currentDefs := <nbl-current-definitions> referrals
+		;	if and(not(!currentDefs => []) , <gt> (<mod> (<next-random;abs>, 100) ,50)) then
+				//use existing
+				result := <use-nbl-referral(|path',newRec,newCount,maxCount)> currentDefs
+				//;<debug(!"NBL referred:")> result				
+			else
+				result :=  <inject-NBL-definition-creation(|path',newRec, newCount, maxCount)> referrals
+			end	
+		else
+			result := <generate-term> (currentNode, prodToWrite, newCount, maxCount, path', newRec)
+		end
+		;	!result
+
+	generate-term:
+		(currentNode, prodToWrite, newCount, maxCount, path', newRec) -> result
+		with
+			// Distribute maximum node count
+	  		filteredProd := <filter-prods> prodToWrite
+  	 	;	<numberItems> filteredProd
+  	 	;	randomMaxima := <generate-random-maxima(|<subti> (maxCount,newCount))> <ItemCount>
+  	 	
+  	 	// Get and distribute rejections
+  	 	;	rejections := <get-and-distribute-rejections> (prodToWrite, currentNode,<ItemCount>) 
+  	 	
+  	 	;	sortMaxRej := <zip> (<zip> (filteredProd, randomMaxima), rejections)
+	
+  	 	;	body := 
+  	 	 		<map({max, sort, rej:
+  	 	 			?((sort,max), rej)
+  	 	 		;	<write-rule(|path',newRec, 0, max, rej)> sort
+  	 	 		})> sortMaxRej
+  	 	
+  	 	;	if <CFCons> (currentNode, prodToWrite) => cons then
+	  			result:= cons#( body )
+	  		else
+	  			if 	<is-specialASTTerm(|prodToWrite,path',newRec,
+						newCount, maxCount)> (currentNode, prodToWrite) => r then
+  					result := r
+		  		else
+		  				preResult := body
+			  		;	if !preResult => [r] then
+			  				result := r
+			  			else
+			  				result := preResult
+			  			end
+			  	end
+		  	end
+		;	!None()
+
+	is-specialASTTerm(|prodToWrite,path,newRec,newCount,maxCount) =
+		SpecialASTTerm
+	;	?ASTStart(<id>)
+	;	process-ASTTerm(|prodToWrite,path,newRec,newCount,maxCount)
+	
+
+	update-cons-coverage=
+		create-key
+	;	ConsKey
+	;	write-CoveredCons
+
+	write-CoveredCons=
+		?key
+	;	rules(CoveredCons: key)
+
+	get-and-distribute-rejections=
+		?(rule,sort, nRule)
+	;	<check-priorities> (rule, sort) => (lPriorities, nPriorities, rPriorities)
+	;	<distribute-rejections(|lPriorities, nPriorities, rPriorities)> (0,nRule) 	
+
+	build-weight-list=
+		map({weight,alternative:
+				?alternative 
+			; 	weight := <ProdWeight <+ !1> alternative
+			;	!(alternative,weight)})
+		;	!(<id>,0)
+		;	thread-map({alt,weight,current, new:
+				?((alt,weight),current) 
+			;	new := <add> (weight, current) 
+			;	!((alt,new),new)})
+ 	
+	choose-alternative(|n):
+		[(prod,i)|xs] -> prod
+		where <leq> (n,i)
+	
+	choose-alternative(|n):
+		[(_,i)|xs] -> prod
+		where not(!xs=>[])
+		where <gt> (n,i)
+		with
+			prod := <choose-alternative(|n)> xs
+
+	get-SDF-constructor:
+		(sort,rule) -> cons
+		where
+			cons := <CFCons> (sort,rule)
+
+	get-SDF-constructor:
+		specialAST -> cons
+		where
+			<SpecialASTTerm;?ASTStart(<id>);?ASTcons(cons,_)> specialAST
+	
+	process-ASTTerm(|prod, path, rec, count, maxCount):
+		ASTcons(cons, params) -> cons#(params')
+		with
+			params' := <map(process-ASTTerm(|prod, path, rec, count, maxCount))> params
+
+	process-ASTTerm(|prod, path, rec, count, maxCount):
+		ASTid(v) -> v
+		with
+			<concat-strings;debug> ["Process-ASTTerm with var?: ",<write-to-string> v]
+
+	process-ASTTerm(|prod, path, rec, count, maxCount):
+		ASTstring(s) -> s'
+		with
+			s' := <un-double-quote> s
+
+	process-ASTTerm(|prod, path, rec, count, maxCount):			
+		ASTint(i) -> i'
+		with
+			i' := <string-to-int> i
+
+	process-ASTTerm(|prod, path, rec, count, maxCount):
+		ASTparam(i) -> res
+		with
+			sortsOnly := <filter(oncetd(?sort(_)))> prod
+		;	numbered := <numberItems> sortsOnly
+		;	toChoose := <addi> (<string-to-int> i,-1)
+		;	<filter(?(_,toChoose))> numbered => [x|xs]
+		;	!x => (toWrite,toChoose)
+		;	res := <write-rule(|path,rec, count, maxCount, [])> toWrite
+
+	process-ASTTerm(|prod, path, rec, count, maxCount):
+		ASTlist(list) -> res
+		with
+			res := <map(process-ASTTerm(|prod, path, rec, count, maxCount))> list
+
+	write-rule(|path,rec, count, maxCount, rejections):
+		d@seq(a,b) -> (result)
+		with
+			r1 		:= <write-rule(|path,rec, count, maxCount, rejections)> a 
+		;	r2 		:= <map(write-rule(|path,rec, count, maxCount, rejections))> b
+		;	result 	:= <conc> ([r1],r2)
+	
+	write-rule(|path,rec, count, maxCount, rejections):
+		<?iter(t) <+ ?iter-sep(t,_)> -> result
+		with
+			t' := <filter-prods> t
+		;	if or(<geq> (count,maxCount), <geq> (rec, <MaxRec>)) then
+				result := [<write-rule(|path, rec, 1, 0, rejections)> t']
+			else
+		 		n :=  <addi> (<mod> (<next-random;abs>, <MaxIter>), 1)
+		 	;	rec' := rec
+			;	maxima := <generate-random-maxima(|<subti> (maxCount, count))> n
+			;	result := <write-n-rule(|t',path,rec',rejections)> (n, maxima)
+			end
+	
+	write-rule(|path,rec, count, maxCount, rejections):
+		<?iter-star(t) <+ ?iter-star-sep(t,_)> -> result
+		with
+			if or(<geq> (count,maxCount), <geq> (rec, <MaxRec>)) then
+				result := []
+			else
+		 		n :=  <mod> (<next-random;abs>, <addi> (<MaxIter>, 1))
+		 	;	rec' := rec
+			;	t' := <filter-prods> t
+			;	maxima := <generate-random-maxima(|<subti> (maxCount, count))> n
+			; 	if <gt> (n,0) then
+		  			result := <write-n-rule(|t',path,rec,rejections)> (n, maxima)
+			  	else
+			  		result := []
+			  	end
+			end
+
+	write-n-rule(|t, path, rec, rejections): 
+		d@(n, [maxCount | xs]) -> result
+		with 
+			c1 := <write-rule(|path, rec, 0, maxCount, rejections)> t
+		;	c2 := <write-n-rule(|t,path,rec,rejections)> (<addi>(n,-1), xs)
+		;	result := Cons( c1 , c2 )
+	
+	write-n-rule(|t, path, rec,rejections): 
+		(0, []) -> Nil()
+	
+	write-rule(|path,rec, count, maxCount, rejections):
+		sort(s) -> result
+		with
+			if not(<LexSorts> s) then //or( ,<LexEmpty> s)	
+				result := <generate-program(|s,path,rec, count, maxCount, rejections)> ()
+			else
+				result := <pick-a-random-terminal> s
+			end
+	
+	write-rule(|path,rec, count, maxCount, rejections):
+		s'@parameterized-sort(_,_) -> result
+		with
+			s := <recognize-sort> s'	
+		;	if not(<LexSorts> s) then //or( ,<LexEmpty> s)	
+				result := <generate-program(|s,path,rec, count, maxCount, rejections)> ()
+			else
+				result := <pick-a-random-terminal> s
+				;	 <debug(!"terminal chosen:")> result
+			end
+	
+	write-rule(|path,rec, count, maxCount, rejections):
+		cf(t) -> result
+		with
+			result:= <write-rule(|path,rec, count, maxCount, rejections)> t
+	
+	write-rule(|path,rec, count, maxCount, rejections):
+		alt(a,b) -> result
+		with
+			n := <mod> (<next-random;abs>,100)
+		;	if <gt> (n, 50) then
+				result := <write-rule(|path,rec, count, maxCount, rejections)> a
+			else
+				result := <write-rule(|path,rec, count, maxCount, rejections)> b
+			end			
+	
+	write-rule(|path,rec, count, maxCount, rejections):
+		label(_,t) -> result
+		with
+			// Remove stuff like layout and lits
+			t' :=  <filter-prods> t
+		;	result := <write-rule(|path,rec, count, maxCount, rejections)> t'
+	
+	write-rule(|path,rec, count, maxCount, rejections):
+		opt(t) -> result
+		with
+			n := <mod> (<next-random;abs>,100)
+					// Check for size and maxRec
+		;	if or(<gt> (<ConsCount>,<MaxCount>), <gt> (rec,<MaxRec>))	then
+		 		result := []
+		 	else
+		 		if <gt> (n,50) then
+					result := <write-rule(|path,rec, count, maxCount, rejections)> t
+				else
+					result := []
+				end
+			end
+	
+	//	why ???
+	write-rule(|path,rec, count, maxCount, rejections):
+		d@lex(_) -> result
+		with
+			result := <generate-terminal> d
+					
+	write-rule(|path,rec, count, maxCount, rejections):
+		t -> t
+		with
+			<concat-strings;debug>  ["This rule has not been written yet: ", <write-to-string> t]
+	
+	filter-prods:
+		t -> filtered
+		with
+			if !t => Cons(_,_) then
+				filtered := <filter(not(filter-prod-help))> t
+			else
+				filtered := t
+			end
+	
+	filter-prod-help:
+		d@lit(_) -> d
+	
+	filter-prod-help:
+		d@layout() -> d
+			
+	filter-prod-help:
+		d@opt(t) -> d
+		where
+			<filter-prod-help> t
+			
+	filter-prod-help:
+		d@cf(t) -> d
+		where
+			<filter-prod-help> t
+	
+	filter-prod-help:
+		d@label(_,t) -> d
+		where
+			<filter-prod-help> t
+					
+	filter-prod-help:
+		< ?d@iter-star(t) <+ ?d@iter-star-sep(t, _) <+ ?d@iter(t) <+ ?d@iter-sep(t, _)> -> d
+		where
+			<filter-prod-help> t 
+

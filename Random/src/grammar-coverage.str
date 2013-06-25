@@ -1,0 +1,96 @@
+module grammar-coverage
+
+imports
+  random_test
+  libstratego-lib
+  libstratego-gpp
+  libstratego-aterm
+  libstratego-sglr
+  libstratego-sdf
+  libstratego-xtc
+  read-sdf
+
+rules
+
+	write-covered-constructors=
+		?cons
+	;	rules(CoveredCons : cons)
+
+	grammar-coverage:
+		l -> l
+		where
+			<is-list> l
+		with
+			<map(grammar-coverage)> l
+
+	grammar-coverage:
+		s -> s
+		where
+			<is-string> s
+	
+	grammar-coverage:
+		d@Some(body) -> d
+		with
+			<grammar-coverage> body
+
+	grammar-coverage:
+		d@cons#(body) -> d
+		with
+			<write-to-string;debug> cons;
+			<ConsCF< !cons + ConsLex < !cons + <conc-strings> ("Deprecated_",cons)> cons
+		;	<conc-strings> (<id>, <length;write-to-string> body)
+		;	write-covered-constructors
+		;	<grammar-coverage> body
+
+	parse-and-measure-grammar-coverage(|tbl)= 
+		?filename
+	;	<parse-file(|tbl);grammar-coverage> filename
+
+	webdsl-check-grammar-measure=
+		rules(Language := "WebDSL")
+		// Parse Language Definition
+	;	<parse-sdf-definition-file;sdf-parsefix;read-sdf> $[./include/[<Language>]/[<Language>].def]
+	;	tbl := <ReadFromFile> $[include/[<Language>]/[<Language>].tbl]	
+	;	get-all-files
+	;	map(parse-and-measure-grammar-coverage(|tbl))
+	; 	all-keys-CoveredCons
+	; 	separate-by(|",") ; concat-strings
+	;	<concat-strings> [ "Covered: " ,<all-keys-CoveredCons;length;write-to-string> , "\n", <id>]
+	;	write-log(|$[/home/andre/Documents/Stratego/Tests/WebDSLCheckGrammar.txt]) 
+
+	parse-and-measure-coverage=
+		?file	
+
+	get-all-files=
+		<get-all-files-with-extension(|<all-webdsl-check-folders>)> "app"
+
+	all-webdsl-check-folders=
+		![$[succeed/*.app],
+	  $[succeed/ac/*.app],
+	  $[succeed/data-validation/*.app],
+	  $[succeed/email/*.app],
+	  $[succeed/stratego/*.app],
+	  $[succeed/entity-events/*.app],
+	  $[succeed/module/*.app],
+	  $[succeed/nativejava/*.app],
+	  $[succeed/overloading/*.app],
+	  $[succeed/property-events/*.app],
+	  $[succeed/manual/*.app],
+	  $[succeed/search/*.app],
+	  $[succeed/prefetch/*.app],
+	  $[fail/*.app],
+	  $[fail/*/*.app],
+	  $[succeed-web/*.app],
+	  $[succeed-web/data-validation/*.app],
+	  $[succeed-web/data-validation/withstylesheet/*.app],
+	  $[succeed-web/ac/*.app],
+	  $[succeed-web/types/*.app],
+	  $[succeed-web/manual/*.app],
+	  $[succeed-web/manual/ajax-form-validation/*.app],
+	  $[succeed-web/manual/ajax-form-validation/templates/*.app],
+	  $[succeed-web/manual/tutorial-splash/v1/*.app],
+	  $[succeed-web/manual/tutorial-splash/v2/*.app],
+	  $[succeed-web/manual/tutorial-splash/v3/*.app],
+	  $[succeed-web/manual/tutorial-splash/v4/*.app],
+	  $[succeed-web/search/*.app]]
+	  ; map(<conc-strings> ($[/home/andre/Documents/Stratego/WebDSL/test/],<id>))
