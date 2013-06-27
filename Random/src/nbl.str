@@ -289,7 +289,8 @@ rules
 		where not(!cons => "")
 		with
 			numberedBody := <numberItems> body
-		;	body' := <map(random-generate-referral-body-aux(|identifier, cons,path,rec,count,maxCount))> numberedBody
+		;	randomMaxima :=  <generate-random-maxima(|<subti> (maxCount,<addi> (count,1)))> <ItemCount>
+		;	body' := <zip;map({b,m: ?(b,m) ; <random-generate-referral-body-aux(|identifier, cons,path,rec,0,m)> b})> (numberedBody,randomMaxima)
 
 	random-generate-referral-body-aux(|identifier,cons,path,rec,count,maxCount): 
 		<?(Wld(),i) <+ ?(NBLType(),i)> -> term
@@ -454,12 +455,11 @@ write-NBL-injection=
 
 	//;	if !alternatives => [] then <debug(!"No injections for: ")> namespace ; <debug(!"at scope: ")> scope ; <debug(!"cons: ")> cons end
 
-
-		;	<debug(!"alternative3: ")> alternative
+//		;	<debug(!"alternative3: ")> alternative
 		;	!alternative => (generation@(_,_,_,stayOnPath,_),injectionPath)
 		; 	toInject := <build-alternative(|identifier,stayOnPath)> generation	
-		;	<debug(!"toInject: ")> toInject ; <debug(!"alternative: ")> alternative
-			; <write-to-string;debug(!"injectingInto: ")> term
+	//	;	<debug(!"toInject: ")> toInject ; <debug(!"alternative: ")> alternative
+		//	; <write-to-string;debug(!"injectingInto: ")> term
 		;	term' := <inject-alternative(|injectionPath,toInject)> term	
 
 
